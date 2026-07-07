@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using StackPilot.Application.Interfaces;
 using StackPilot.Domain.Entities;
 using StackPilot.Domain.Enums;
 using StackPilot.Infrastructure.Persistence;
@@ -112,6 +113,64 @@ public static class DatabaseSeeder
 
         db.ConnectorDefinitions.AddRange(connectorDefs);
         await db.SaveChangesAsync();
+    }
+
+    public static async Task SeedDemoDataAsync(IServiceProvider services)
+    {
+        using var scope = services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var approvalGates = scope.ServiceProvider.GetRequiredService<IApprovalGateService>();
+
+        if (await db.Users.AnyAsync(u => u.Email == "demo@stackpilot.dev")) return;
+
+        var user = new ApplicationUser
+        {
+            Email = "demo@stackpilot.dev",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword("DemoPassword123!"),
+            FirstName = "Demo",
+            LastName = "User"
+        };
+        db.Users.Add(user);
+
+        var org = new Organization { Name = "Acme Corp", Slug = "acme-demo" };
+        db.Organizations.Add(org);
+
+        var adminRole = await db.Roles.FirstAsync(r => r.SystemRoleType == SystemRole.ClientAdmin);
+        db.OrganizationMembers.Add(new OrganizationMember { OrganizationId = org.Id, UserId = user.Id, RoleId = adminRole.Id });
+
+        var workspace = new Workspace { OrganizationId = org.Id, Name = "Production", Slug = "production", Description = "Demo workspace" };
+        db.Workspaces.Add(workspace);
+
+        var appNode = new GraphNode { OrganizationId = org.Id, WorkspaceId = workspace.Id, NodeType = GraphNodeType.Application, Name = "Customer Portal", RiskScore = 3.5m };
+        db.GraphNodes.Add(appNode);
+
+        var ticket = new Ticket
+        {
+            OrganizationId = org.Id,
+            WorkspaceId = workspace.Id,
+            Title = "Add two-factor authentication",
+            Description = "Users need 2FA for compliance with SOC2",
+            TicketType = TicketType.NewFeature,
+            Priority = TicketPriority.High,
+            Status = TicketStatus.AwaitingApproval,
+            RequesterId = user.Id,
+            BusinessJustification = "SOC2 audit requirement",
+            AiRequirementsJson = """{"businessSummary":"Implement TOTP-based 2FA","functionalRequirements":"Users can enroll authenticator apps\nLogin requires OTP after password","nonFunctionalRequirements":"99.9% availability","acceptanceCriteria":"2FA enrollment works\nLogin blocked without OTP","citations":[{"nodeId":"","excerpt":"Customer Portal auth module"}]}""",
+            RiskScore = 5.5m,
+            ConfidenceScore = 0.88m
+        };
+        db.Tickets.Add(ticket);
+
+        db.DocumentationPages.Add(new DocumentationPage
+        {
+            OrganizationId = org.Id,
+            WorkspaceId = workspace.Id,
+            Title = "Customer Portal Architecture",
+            DocType = "Architecture"
+        });
+
+        await db.SaveChangesAsync();
+        await approvalGates.EnsureDefaultGatesAsync(org.Id);
     }
 
     public static async Task EnsureConnectorDefinitionsAsync(IServiceProvider services)

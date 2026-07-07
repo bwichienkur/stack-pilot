@@ -1,0 +1,56 @@
+name: Deploy Staging
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "frontend/**"
+      - "Dockerfile.*"
+      - "docker-compose.yml"
+
+jobs:
+  build-images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build API image
+        run: docker build -f Dockerfile.api -t stackpilot-api:staging .
+
+      - name: Build Workers image
+        run: docker build -f Dockerfile.workers -t stackpilot-workers:staging .
+
+      - name: Build Frontend image
+        run: docker build -f Dockerfile.frontend --build-arg NEXT_PUBLIC_API_URL=https://api.staging.stackpilot.dev/api/v1 -t stackpilot-frontend:staging .
+
+      - name: Staging deploy summary
+        run: |
+          echo "## Staging deploy artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "Images built: stackpilot-api, stackpilot-workers, stackpilot-frontend" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Push to your container registry and deploy with:" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "docker compose -f docker-compose.yml up -d" >> $GITHUB_STEP_SUMMARY
+          echo "DEMO_SEED=true # optional demo data" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+  smoke-test:
+    runs-on: ubuntu-latest
+    needs: build-images
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: stackpilot
+          POSTGRES_USER: stackpilot
+          POSTGRES_PASSWORD: stackpilot
+        ports:
+          - 5432:5432
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - run: dotnet test tests/StackPilot.IntegrationTests/StackPilot.IntegrationTests.csproj -c Release --verbosity normal

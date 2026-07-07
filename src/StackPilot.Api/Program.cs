@@ -112,6 +112,8 @@ var app = builder.Build();
 
 await DatabaseSeeder.SeedAsync(app.Services);
 await DatabaseSeeder.EnsureConnectorDefinitionsAsync(app.Services);
+if (Environment.GetEnvironmentVariable("DEMO_SEED") == "true")
+    await DatabaseSeeder.SeedDemoDataAsync(app.Services);
 
 if (app.Environment.IsDevelopment())
 {
@@ -123,7 +125,8 @@ app.UseGlobalExceptionHandling();
 app.UseApiVersionHeaders();
 app.UseSerilogRequestLogging();
 app.UseCors();
-app.UseRateLimiter();
+if (!app.Environment.IsEnvironment("Testing"))
+    app.UseRateLimiter();
 app.UseAuthentication();
 app.UseTenantContext();
 app.UseAuthorization();

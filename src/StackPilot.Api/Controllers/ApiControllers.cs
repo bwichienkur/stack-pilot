@@ -262,6 +262,21 @@ public class TicketsController : ControllerBase
     public async Task<ActionResult<ApiResponse<List<TicketDto>>>> PendingApprovals(Guid workspaceId, CancellationToken ct) =>
         Ok(ApiResponse<List<TicketDto>>.Ok(await _tickets.GetPendingApprovalsAsync(workspaceId, ct)));
 
+    [HttpGet("workspaces/{workspaceId:guid}/qa/pending")]
+    [RequirePermission(Permissions.TicketsQa)]
+    public async Task<ActionResult<ApiResponse<List<TicketDto>>>> PendingQa(Guid workspaceId, CancellationToken ct) =>
+        Ok(ApiResponse<List<TicketDto>>.Ok(await _tickets.GetPendingQaAsync(workspaceId, ct)));
+
+    [HttpGet("workspaces/{workspaceId:guid}/uat/pending")]
+    [RequirePermission(Permissions.TicketsUat)]
+    public async Task<ActionResult<ApiResponse<List<TicketDto>>>> PendingUat(Guid workspaceId, CancellationToken ct) =>
+        Ok(ApiResponse<List<TicketDto>>.Ok(await _tickets.GetPendingUatAsync(workspaceId, ct)));
+
+    [HttpGet("tickets/{id:guid}/build-runs")]
+    [RequirePermission(Permissions.TicketsRead)]
+    public async Task<ActionResult<ApiResponse<List<BuildRunDto>>>> TicketBuildRuns(Guid id, [FromServices] IIntelligenceService intelligence, CancellationToken ct) =>
+        Ok(ApiResponse<List<BuildRunDto>>.Ok(await intelligence.GetBuildRunsByTicketAsync(id, ct)));
+
     [HttpPost("tickets/{id:guid}/qa")]
     [RequirePermission(Permissions.TicketsQa)]
     public async Task<ActionResult<ApiResponse<QaEvidenceDto>>> Qa(Guid id, [FromBody] SubmitQaRequest request, CancellationToken ct) =>
@@ -382,6 +397,20 @@ public class GraphController : ControllerBase
     {
         var result = await _docs.GetByWorkspaceAsync(workspaceId, request, ct);
         return Ok(ApiResponse<PagedResult<DocumentationPageDto>>.Ok(result));
+    }
+
+    [HttpPost("docs/{pageId:guid}/generate")]
+    [RequirePermission(Permissions.DocsManage)]
+    [EnableRateLimiting("ai")]
+    public async Task<ActionResult<ApiResponse<string>>> GenerateDoc(Guid pageId, CancellationToken ct) =>
+        Ok(ApiResponse<string>.Ok(await _ai.GenerateDocumentationAsync(pageId, ct)));
+
+    [HttpGet("docs/{pageId:guid}/latest")]
+    [RequirePermission(Permissions.DocsRead)]
+    public async Task<ActionResult<ApiResponse<DocumentationVersionDto>>> LatestDoc(Guid pageId, CancellationToken ct)
+    {
+        var version = await _docs.GetLatestVersionAsync(pageId, ct);
+        return version is null ? NotFound() : Ok(ApiResponse<DocumentationVersionDto>.Ok(version));
     }
 
     [HttpPost("workspaces/{workspaceId:guid}/ai/chat")]

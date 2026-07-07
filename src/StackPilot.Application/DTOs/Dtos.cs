@@ -66,7 +66,8 @@ public record AiCitationDto(Guid? NodeId, string Excerpt);
 public record AiRequirementsResult(string BusinessSummary, string FunctionalRequirements, string NonFunctionalRequirements, string AcceptanceCriteria, decimal RiskScore, decimal ConfidenceScore, List<AiCitationDto>? Citations = null);
 
 public record AuditLogDto(Guid Id, string Action, string? EntityType, Guid? EntityId, Guid? UserId, string? DetailsJson, DateTime CreatedAt);
-public record BuildRunDto(Guid Id, string Status, string? Conclusion, string? LogsUrl, string? PullRequestUrl, DateTime? StartedAt, DateTime? CompletedAt);
+public record BuildRunDto(Guid Id, Guid? TicketId, string Status, string? Conclusion, string? LogsUrl, string? PullRequestUrl, DateTime? StartedAt, DateTime? CompletedAt);
+public record ApprovalGateDto(Guid Id, string GateType, string RequiredPermission, int SortOrder, bool IsEnabled);
 
 public record DashboardStatsDto(
     int ApplicationCount, int RepositoryCount, int DatabaseCount, int OpenTickets,

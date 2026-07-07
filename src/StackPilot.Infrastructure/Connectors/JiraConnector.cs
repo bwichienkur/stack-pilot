@@ -51,6 +51,7 @@ public class JiraConnector : ConnectorBase
         {
             var client = CreateClient(baseUrl, email, apiToken);
             var projects = new List<string>();
+            var issues = new List<Dictionary<string, string>>();
 
             if (projectKeys.Length > 0)
             {
@@ -73,17 +74,78 @@ public class JiraConnector : ConnectorBase
                 }
             }
 
+            foreach (var projectKey in projects.Where(p => !string.IsNullOrWhiteSpace(p)))
+            {
+                var jql = Uri.EscapeDataString($"project = {projectKey} ORDER BY updated DESC");
+                var issueResponse = await client.GetAsync($"/rest/api/3/search?jql={jql}&maxResults=25&fields=summary,description,status,priority,issuetype", ct);
+                if (!issueResponse.IsSuccessStatusCode) continue;
+
+                var issueJson = await issueResponse.Content.ReadFromJsonAsync<JsonElement>(ct);
+                if (!issueJson.TryGetProperty("issues", out var issueList)) continue;
+
+                foreach (var issue in issueList.EnumerateArray())
+                {
+                    var key = issue.GetProperty("key").GetString() ?? "";
+                    var fields = issue.GetProperty("fields");
+                    var summary = fields.TryGetProperty("summary", out var s) ? s.GetString() ?? key : key;
+                    var description = fields.TryGetProperty("description", out var d) ? ExtractDescription(d) : "";
+                    var status = fields.TryGetProperty("status", out var st) && st.TryGetProperty("name", out var sn) ? sn.GetString() ?? "Open" : "Open";
+                    var priority = fields.TryGetProperty("priority", out var pr) && pr.TryGetProperty("name", out var pn) ? pn.GetString() ?? "Medium" : "Medium";
+                    var issueType = fields.TryGetProperty("issuetype", out var it) && it.TryGetProperty("name", out var itn) ? itn.GetString() ?? "Task" : "Task";
+
+                    issues.Add(new Dictionary<string, string>
+                    {
+                        ["externalId"] = key,
+                        ["title"] = summary,
+                        ["description"] = description,
+                        ["status"] = status,
+                        ["priority"] = priority,
+                        ["ticketType"] = issueType
+                    });
+                }
+            }
+
             return new SyncResult
             {
                 Success = true,
-                ItemsProcessed = projects.Count,
-                Metadata = new() { ["projects"] = projects.ToArray(), ["syncType"] = "jira" }
+                ItemsProcessed = issues.Count,
+                Metadata = new()
+                {
+                    ["projects"] = projects.ToArray(),
+                    ["issues"] = issues,
+                    ["syncType"] = "jira"
+                }
             };
         }
         catch (Exception ex)
         {
             return new SyncResult { Success = false, Errors = [ex.Message] };
         }
+    }
+
+    private static string ExtractDescription(JsonElement description)
+    {
+        if (description.ValueKind == JsonValueKind.String)
+            return description.GetString() ?? "";
+
+        if (description.ValueKind == JsonValueKind.Object && description.TryGetProperty("content", out var content))
+        {
+            var parts = new List<string>();
+            foreach (var block in content.EnumerateArray())
+            {
+                if (block.TryGetProperty("content", out var inner))
+                {
+                    foreach (var node in inner.EnumerateArray())
+                    {
+                        if (node.TryGetProperty("text", out var text))
+                            parts.Add(text.GetString() ?? "");
+                    }
+                }
+            }
+            return string.Join("\n", parts);
+        }
+
+        return "";
     }
 
     private HttpClient CreateClient(string baseUrl, string email, string apiToken)

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AppLayout } from "@/components/layout/sidebar";
@@ -10,6 +10,7 @@ import { EmptyState } from "@/components/empty-state";
 import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast";
+import { usePendingApprovals } from "@/lib/api-hooks";
 import { CheckCircle, XCircle } from "lucide-react";
 
 interface Ticket {
@@ -25,24 +26,11 @@ export default function ApprovalsPage() {
   const { token, orgId, workspaceId } = useAuth();
   const router = useRouter();
   const { showToast } = useToast();
-  const [tickets, setTickets] = useState<Ticket[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: tickets = [], isLoading, refetch } = usePendingApprovals() as { data: Ticket[]; isLoading: boolean; refetch: () => void };
 
   useEffect(() => {
-    if (!token) { router.push("/login"); return; }
-    if (workspaceId) loadPending();
-  }, [token, workspaceId]);
-
-  const loadPending = async () => {
-    try {
-      const data = await api<Ticket[]>(`/workspaces/${workspaceId}/approvals/pending`, {}, token, orgId, workspaceId);
-      setTickets(data);
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : "Failed to load approvals", "error");
-    } finally {
-      setLoading(false);
-    }
-  };
+    if (!token) router.push("/login");
+  }, [token, router]);
 
   const decide = async (ticketId: string, decision: string) => {
     try {
@@ -51,7 +39,7 @@ export default function ApprovalsPage() {
         body: JSON.stringify({ approvalType: "TechnicalReviewer", decision, comments: "" }),
       }, token, orgId, workspaceId);
       showToast(decision === "Approved" ? "Ticket approved" : "Ticket rejected", "success");
-      loadPending();
+      refetch();
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Approval failed", "error");
     }
@@ -67,7 +55,7 @@ export default function ApprovalsPage() {
           <p className="text-zinc-400 mt-1">Review AI-generated requirements before implementation</p>
         </div>
 
-        {loading ? <PageSkeleton rows={3} /> : tickets.length === 0 ? (
+        {isLoading ? <PageSkeleton rows={3} /> : tickets.length === 0 ? (
           <EmptyState
             title="No pending approvals"
             description="Tickets awaiting approval will appear here after AI requirements are generated."

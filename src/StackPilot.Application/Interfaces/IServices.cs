@@ -55,6 +55,8 @@ public interface ITicketService
     Task<TicketCommentDto> AddCommentAsync(Guid ticketId, AddCommentRequest request, Guid userId, CancellationToken ct = default);
     Task<ApprovalDto> SubmitApprovalAsync(Guid ticketId, SubmitApprovalRequest request, Guid approverId, CancellationToken ct = default);
     Task<List<TicketDto>> GetPendingApprovalsAsync(Guid workspaceId, CancellationToken ct = default);
+    Task<List<TicketDto>> GetPendingQaAsync(Guid workspaceId, CancellationToken ct = default);
+    Task<List<TicketDto>> GetPendingUatAsync(Guid workspaceId, CancellationToken ct = default);
     Task<QaEvidenceDto> SubmitQaAsync(Guid ticketId, SubmitQaRequest request, Guid testerId, CancellationToken ct = default);
     Task<UatDecisionDto> SubmitUatAsync(Guid ticketId, SubmitUatRequest request, Guid approverId, CancellationToken ct = default);
     Task<ReleaseScheduleDto> ScheduleReleaseAsync(Guid ticketId, ScheduleReleaseRequest request, Guid userId, CancellationToken ct = default);
@@ -95,6 +97,7 @@ public interface IIntelligenceService
     Task<RepositoryScanDto> TriggerRepositoryScanAsync(Guid connectorId, string repositoryName, CancellationToken ct = default);
     Task<DatabaseScanDto> TriggerDatabaseScanAsync(Guid connectorId, string databaseName, CancellationToken ct = default);
     Task<List<BuildRunDto>> GetBuildRunsAsync(Guid workspaceId, CancellationToken ct = default);
+    Task<List<BuildRunDto>> GetBuildRunsByTicketAsync(Guid ticketId, CancellationToken ct = default);
 }
 
 public interface IWebhookService

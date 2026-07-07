@@ -105,6 +105,7 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Ticket>(e =>
         {
             e.Property(x => x.TicketNumber).UseIdentityColumn();
+            e.HasIndex(x => new { x.WorkspaceId, x.ExternalReference });
             e.HasOne(x => x.Requester).WithMany().HasForeignKey(x => x.RequesterId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.Assignee).WithMany().HasForeignKey(x => x.AssigneeId).OnDelete(DeleteBehavior.SetNull);
         });

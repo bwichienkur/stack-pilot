@@ -179,6 +179,89 @@ public class AuthIntegrationTests : IClassFixture<StackPilotWebApplicationFactor
     }
 
     [Fact]
+    public async Task GoldenPath_Register_Org_Ticket_Requirements_Approval()
+    {
+        var email = $"golden_{Guid.NewGuid():N}@stackpilot.test";
+        var (auth, orgId) = await RegisterAndCreateOrg(email);
+
+        _client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", auth);
+        _client.DefaultRequestHeaders.Remove("X-Organization-Id");
+        _client.DefaultRequestHeaders.Add("X-Organization-Id", orgId.ToString());
+
+        var wsResponse = await _client.GetAsync($"/api/v1/organizations/{orgId}/workspaces");
+        var wsBody = await wsResponse.Content.ReadFromJsonAsync<ApiResponse<List<WorkspaceDto>>>();
+        var workspaceId = wsBody!.Data![0].Id;
+        _client.DefaultRequestHeaders.Remove("X-Workspace-Id");
+        _client.DefaultRequestHeaders.Add("X-Workspace-Id", workspaceId.ToString());
+
+        var ticketResponse = await _client.PostAsJsonAsync($"/api/v1/workspaces/{workspaceId}/tickets", new
+        {
+            title = "Golden path feature",
+            description = "End-to-end validation",
+            ticketType = "Enhancement",
+            priority = "High",
+            businessJustification = "CI golden path"
+        });
+        Assert.Equal(HttpStatusCode.OK, ticketResponse.StatusCode);
+        var ticketBody = await ticketResponse.Content.ReadFromJsonAsync<ApiResponse<TicketDto>>();
+        var ticketId = ticketBody!.Data!.Id;
+
+        var reqResponse = await _client.PostAsync($"/api/v1/tickets/{ticketId}/generate-requirements", null);
+        Assert.Equal(HttpStatusCode.OK, reqResponse.StatusCode);
+
+        var pendingResponse = await _client.GetAsync($"/api/v1/workspaces/{workspaceId}/approvals/pending");
+        Assert.Equal(HttpStatusCode.OK, pendingResponse.StatusCode);
+        var pendingBody = await pendingResponse.Content.ReadFromJsonAsync<ApiResponse<List<TicketDto>>>();
+        Assert.Contains(pendingBody!.Data!, t => t.Id == ticketId);
+
+        var approveResponse = await _client.PostAsJsonAsync($"/api/v1/tickets/{ticketId}/approvals", new
+        {
+            approvalType = "TechnicalReviewer",
+            decision = "Approved",
+            comments = "LGTM"
+        });
+        Assert.Equal(HttpStatusCode.OK, approveResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task Qa_And_Uat_Queues_Work()
+    {
+        var email = $"qauat_{Guid.NewGuid():N}@stackpilot.test";
+        var (auth, orgId) = await RegisterAndCreateOrg(email);
+
+        _client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", auth);
+        _client.DefaultRequestHeaders.Remove("X-Organization-Id");
+        _client.DefaultRequestHeaders.Add("X-Organization-Id", orgId.ToString());
+
+        var wsBody = await (await _client.GetAsync($"/api/v1/organizations/{orgId}/workspaces")).Content.ReadFromJsonAsync<ApiResponse<List<WorkspaceDto>>>();
+        var workspaceId = wsBody!.Data![0].Id;
+        _client.DefaultRequestHeaders.Remove("X-Workspace-Id");
+        _client.DefaultRequestHeaders.Add("X-Workspace-Id", workspaceId.ToString());
+
+        var ticketResponse = await _client.PostAsJsonAsync($"/api/v1/workspaces/{workspaceId}/tickets", new
+        {
+            title = "QA UAT test",
+            ticketType = "Bug",
+            priority = "Low"
+        });
+        var ticketId = (await ticketResponse.Content.ReadFromJsonAsync<ApiResponse<TicketDto>>())!.Data!.Id;
+
+        await _client.PatchAsJsonAsync($"/api/v1/tickets/{ticketId}", new { status = "DeployedToTest" });
+
+        var qaPending = await _client.GetAsync($"/api/v1/workspaces/{workspaceId}/qa/pending");
+        Assert.Equal(HttpStatusCode.OK, qaPending.StatusCode);
+
+        var qaSubmit = await _client.PostAsJsonAsync($"/api/v1/tickets/{ticketId}/qa", new { result = "pass", notes = "All tests pass" });
+        Assert.Equal(HttpStatusCode.OK, qaSubmit.StatusCode);
+
+        var uatPending = await _client.GetAsync($"/api/v1/workspaces/{workspaceId}/uat/pending");
+        Assert.Equal(HttpStatusCode.OK, uatPending.StatusCode);
+
+        var uatSubmit = await _client.PostAsJsonAsync($"/api/v1/tickets/{ticketId}/uat", new { decision = "Approved", comments = "Accepted" });
+        Assert.Equal(HttpStatusCode.OK, uatSubmit.StatusCode);
+    }
+
+    [Fact]
     public async Task CrossTenant_Access_Is_Denied()
     {
         var userA = await RegisterAndCreateOrg($"usera_{Guid.NewGuid():N}@stackpilot.test");

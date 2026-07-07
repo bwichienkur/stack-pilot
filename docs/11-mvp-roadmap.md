@@ -1,116 +1,88 @@
 # StackPilot — MVP Roadmap & Implementation Plan
 
-## MVP Scope Summary
+## Status: Post-Review (July 2026)
 
-Build a working foundation demonstrating all core workflows end-to-end with production-quality architecture.
+The 100-task independent review backlog is **complete**. Post-review completion items (E2E golden path, QA/UAT queues, pgvector RAG, PR linking, SAML scaffold, etc.) are **implemented**.
 
-## Phase 1: Foundation (Current)
+## Phase 1: Foundation ✅
 
-- [x] Planning documentation
-- [ ] Solution scaffold (Clean Architecture)
-- [ ] Domain entities and EF Core DbContext
-- [ ] Multi-tenancy with global query filters
-- [ ] RBAC with seeded roles/permissions
-- [ ] JWT authentication
-- [ ] Audit logging middleware
-- [ ] API project with OpenAPI
+- [x] Clean Architecture solution scaffold
+- [x] Domain entities and EF Core DbContext
+- [x] Multi-tenancy with global query filters + PostgreSQL RLS
+- [x] RBAC with seeded roles/permissions
+- [x] JWT authentication + refresh token rotation
+- [x] OIDC SSO scaffold + SAML 2.0 metadata scaffold
+- [x] Audit logging middleware
+- [x] API with OpenAPI/Swagger
 
-## Phase 2: Connectors & Intelligence
+## Phase 2: Connectors & Intelligence ✅
 
-- [ ] Connector framework (registry, interface, credential encryption)
-- [ ] GitHub repository connector
-- [ ] SQL Server connector
-- [ ] PostgreSQL connector
-- [ ] GitHub Actions connector
-- [ ] Repository scanner service
-- [ ] Database scanner service
-- [ ] Background sync jobs (Hangfire)
+- [x] Connector framework (registry, encryption, sync jobs)
+- [x] GitHub, GitLab, SQL Server, PostgreSQL, Jira connectors
+- [x] GitHub Actions CI/CD tracking + webhooks
+- [x] Repository and database scanners
+- [x] Hangfire background jobs (API + Workers host)
+- [x] Redis caching
 
-## Phase 3: Knowledge Graph & Documentation
+## Phase 3: Knowledge Graph & Documentation ✅
 
-- [ ] Graph node/edge CRUD and search
-- [ ] Auto-populate graph from scans
-- [ ] Impact analysis service
-- [ ] Documentation model with versioning
-- [ ] AI documentation generator (mock + real provider)
+- [x] Graph nodes/edges, search, impact analysis
+- [x] Auto-populate from scans
+- [x] Documentation versioning
+- [x] AI documentation generator (UI + API)
+- [x] pgvector RAG index (PostgreSQL) with JSON fallback for tests
 
-## Phase 4: Workflow & AI
+## Phase 4: Workflow & AI ✅
 
-- [ ] Ticket CRUD with full status lifecycle
-- [ ] AI requirements generator
-- [ ] Approval workflow engine
-- [ ] AI implementation plan generator
-- [ ] QA evidence and UAT decision flows
-- [ ] Production release scheduling
-- [ ] AI action audit trail
+- [x] Full ticket lifecycle (intake → production)
+- [x] AI requirements with graph citations
+- [x] Configurable approval gates engine
+- [x] AI implementation plan generator
+- [x] QA queue + UAT queue (API + UI)
+- [x] Production release scheduling
+- [x] AI action audit trail + governance
 
-## Phase 5: CI/CD Integration
+## Phase 5: CI/CD Integration ✅
 
-- [ ] GitHub Actions build tracking
-- [ ] PR linking to tickets
-- [ ] Build result attachment
+- [x] GitHub Actions build tracking
+- [x] PR ↔ ticket linking (branch naming + webhooks)
+- [x] Build runs on ticket detail
 
-## Phase 6: Frontend
+## Phase 6: Frontend ✅
 
-- [ ] Next.js app with dark mode
-- [ ] shadcn/ui component library
-- [ ] Auth pages (login, onboarding)
-- [ ] Dashboard with KPI cards
-- [ ] Connector management pages
-- [ ] Architecture map (React Flow)
-- [ ] Ticket board and detail
-- [ ] Approval, QA, UAT queues
-- [ ] AI copilot panel
-- [ ] Command palette
+- [x] Next.js dark mode UI (shadcn-style components)
+- [x] Auth, onboarding, dashboard
+- [x] Connectors, architecture map, applications
+- [x] Ticket board + full detail workflow tabs
+- [x] Approval, QA, UAT queues
+- [x] AI copilot + command palette
+- [x] React Query for key data pages
+- [x] Playwright E2E golden path in CI
 
-## Phase 7: Polish & Deploy
+## Phase 7: Polish & Deploy ✅
 
-- [ ] Docker Compose for local dev
-- [ ] Seed data script
-- [ ] Integration tests for critical paths
-- [ ] OpenTelemetry configuration
-- [ ] README with setup instructions
+- [x] Docker Compose (pgvector PostgreSQL, Redis, API, workers, frontend)
+- [x] Demo seed data (`DEMO_SEED=true`, see [DEMO.md](../DEMO.md))
+- [x] Integration tests (auth, tickets, QA/UAT, golden path, tenant isolation)
+- [x] OpenTelemetry 1.15.3 (NU1902 advisory resolved)
+- [x] Staging deploy workflow
+- [x] Ops runbook
+
+## Scaffold / Next Production Hardening
+
+| Item | Status |
+|------|--------|
+| SAML full IdP integration (Sustainsys.Saml2) | Scaffold only |
+| Desktop app (Tauri) | Scaffold — loads web frontend |
+| Mobile app (Expo) | Scaffold — dashboard + API hooks |
+| Billing / multi-region | Not started |
+| Production K8s manifests | Use Docker Compose + staging workflow |
 
 ## Post-MVP Roadmap
 
 | Quarter | Focus |
 |---------|-------|
-| Q1 | SSO (OIDC/SAML), additional connectors (GitLab, Jira) |
-| Q2 | Desktop app (Tauri), advanced recommendations |
-| Q3 | Mobile app (approvals/dashboards), billing integration |
-| Q4 | Service extraction, graph DB migration, marketplace |
-
-## Implementation Principles
-
-1. **Security first** — Every endpoint authenticated, every query tenant-scoped
-2. **Audit everything** — AI actions, approvals, credential access
-3. **Approval gates** — No AI write without human approval
-4. **Idempotent jobs** — Safe retries for all background work
-5. **Clean boundaries** — Modules communicate via interfaces and events
-6. **Test critical paths** — Auth, tenancy isolation, approval workflow
-
-## Local Development Setup
-
-```bash
-# Start infrastructure
-docker compose up -d
-
-# Backend
-cd src/StackPilot.Api
-dotnet run
-
-# Frontend
-cd frontend
-npm install && npm run dev
-
-# Workers
-cd src/StackPilot.Workers
-dotnet run
-```
-
-Services:
-- API: http://localhost:5000
-- Frontend: http://localhost:3000
-- PostgreSQL: localhost:5432
-- Redis: localhost:6379
-- Hangfire Dashboard: http://localhost:5000/hangfire
+| Q1 | Design partner pilots, SAML production, additional connectors |
+| Q2 | Tauri desktop polish, advanced recommendations |
+| Q3 | Mobile approvals GA, billing integration |
+| Q4 | Enterprise compliance (SOC2), multi-region |
