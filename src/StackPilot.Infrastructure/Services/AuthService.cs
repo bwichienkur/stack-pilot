@@ -48,6 +48,9 @@ public class AuthService : IAuthService
         var user = await _db.Users.FirstOrDefaultAsync(u => u.Email == request.Email.ToLowerInvariant(), ct)
             ?? throw new UnauthorizedAccessException("Invalid credentials");
 
+        if (string.IsNullOrEmpty(user.PasswordHash))
+            throw new UnauthorizedAccessException("This account uses SSO. Please sign in with your identity provider.");
+
         if (!BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
             throw new UnauthorizedAccessException("Invalid credentials");
 
@@ -60,6 +63,43 @@ public class AuthService : IAuthService
     {
         var user = await _db.Users.FindAsync([userId], ct);
         return user is null ? null : MapUser(user);
+    }
+
+    public async Task<AuthResponse> HandleSsoLoginAsync(string email, string? firstName, string? lastName, string externalId, string provider, CancellationToken ct = default)
+    {
+        var normalizedEmail = email.ToLowerInvariant();
+        var user = await _db.Users.FirstOrDefaultAsync(u =>
+            u.ExternalId == externalId && u.AuthProvider == provider, ct);
+
+        if (user is null)
+        {
+            user = await _db.Users.FirstOrDefaultAsync(u => u.Email == normalizedEmail, ct);
+            if (user is not null)
+            {
+                user.ExternalId = externalId;
+                user.AuthProvider = provider;
+                if (!string.IsNullOrEmpty(firstName)) user.FirstName = firstName;
+                if (!string.IsNullOrEmpty(lastName)) user.LastName = lastName;
+            }
+        }
+
+        if (user is null)
+        {
+            user = new ApplicationUser
+            {
+                Email = normalizedEmail,
+                FirstName = firstName,
+                LastName = lastName,
+                ExternalId = externalId,
+                AuthProvider = provider,
+                PasswordHash = string.Empty
+            };
+            _db.Users.Add(user);
+        }
+
+        user.LastLoginAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync(ct);
+        return CreateAuthResponse(user);
     }
 
     private AuthResponse CreateAuthResponse(ApplicationUser user)

@@ -162,33 +162,6 @@ public class AiService : IAiService
     }
 }
 
-public class MockAiProvider : IAiProvider
-{
-    public string ProviderName => "mock";
-
-    public Task<AiCompletionResult> CompleteAsync(AiCompletionRequest request, CancellationToken ct = default)
-    {
-        var content = request.SystemPrompt.Contains("business analyst")
-            ? """{"businessSummary":"Automated analysis of the submitted ticket","functionalRequirements":"Implement the described feature with proper validation and error handling","nonFunctionalRequirements":"Response time < 200ms, 99.9% availability, secure by default","acceptanceCriteria":"Feature works as described\\nAll tests pass\\nNo security vulnerabilities","riskScore":4.5,"confidenceScore":0.82}"""
-            : request.SystemPrompt.Contains("architect")
-            ? "## Implementation Plan\n\n### Affected Components\n- Service layer\n- API endpoints\n- Database schema\n\n### Steps\n1. Create feature branch\n2. Implement changes\n3. Add unit tests\n4. Update documentation\n\n### Rollback Plan\nRevert commit and redeploy previous version."
-            : $"Based on the available context, here is my analysis regarding: {request.UserPrompt[..Math.Min(100, request.UserPrompt.Length)]}...";
-
-        return Task.FromResult(new AiCompletionResult
-        {
-            Content = content,
-            Model = "mock-gpt-4",
-            TokensUsed = 500
-        });
-    }
-
-    public Task<AiEmbeddingResult> EmbedAsync(AiEmbeddingRequest request, CancellationToken ct = default)
-    {
-        var embeddings = request.Texts.Select(_ => Enumerable.Repeat(0.1f, 1536).ToArray()).ToList();
-        return Task.FromResult(new AiEmbeddingResult { Embeddings = embeddings, TokensUsed = request.Texts.Count * 10 });
-    }
-}
-
 public class AiGovernanceService : IAiGovernanceService
 {
     private readonly AppDbContext _db;

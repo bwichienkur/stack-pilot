@@ -147,6 +147,7 @@ public class ConnectorService : IConnectorService
             OrganizationId = instance.OrganizationId,
             WorkspaceId = instance.WorkspaceId,
             ConnectorInstanceId = instance.Id,
+            ConnectorType = instance.Definition.Type,
             ConfigJson = instance.ConfigJson,
             Credentials = credentials
         };

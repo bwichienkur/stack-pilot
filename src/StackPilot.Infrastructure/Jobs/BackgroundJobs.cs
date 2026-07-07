@@ -66,6 +66,7 @@ public class ConnectorSyncJob
                 OrganizationId = instance.OrganizationId,
                 WorkspaceId = instance.WorkspaceId,
                 ConnectorInstanceId = instance.Id,
+                ConnectorType = instance.Definition.Type,
                 ConfigJson = instance.ConfigJson,
                 Credentials = credentials
             };
@@ -139,7 +140,10 @@ public class RepositoryScanJob
 
         if (scan is null) return;
 
-        var instance = await db.ConnectorInstances.Include(c => c.Credentials).FirstAsync(c => c.Id == connectorId, ct);
+        var instance = await db.ConnectorInstances
+            .Include(c => c.Definition)
+            .Include(c => c.Credentials)
+            .FirstAsync(c => c.Id == connectorId, ct);
         scan.Status = ScanStatus.Running;
         scan.StartedAt = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
@@ -149,6 +153,7 @@ public class RepositoryScanJob
             OrganizationId = instance.OrganizationId,
             WorkspaceId = instance.WorkspaceId,
             ConnectorInstanceId = instance.Id,
+            ConnectorType = instance.Definition.Type,
             ConfigJson = instance.ConfigJson,
             Credentials = instance.Credentials.ToDictionary(c => c.CredentialType, c => encryption.Decrypt(c.EncryptedValue, instance.OrganizationId))
         };
@@ -207,7 +212,10 @@ public class DatabaseScanJob
 
         if (scan is null) return;
 
-        var instance = await db.ConnectorInstances.Include(c => c.Credentials).FirstAsync(c => c.Id == connectorId, ct);
+        var instance = await db.ConnectorInstances
+            .Include(c => c.Definition)
+            .Include(c => c.Credentials)
+            .FirstAsync(c => c.Id == connectorId, ct);
         scan.Status = ScanStatus.Running;
         scan.StartedAt = DateTime.UtcNow;
 
@@ -216,6 +224,7 @@ public class DatabaseScanJob
             OrganizationId = instance.OrganizationId,
             WorkspaceId = instance.WorkspaceId,
             ConnectorInstanceId = instance.Id,
+            ConnectorType = instance.Definition.Type,
             ConfigJson = instance.ConfigJson,
             Credentials = instance.Credentials.ToDictionary(c => c.CredentialType, c => encryption.Decrypt(c.EncryptedValue, instance.OrganizationId))
         };

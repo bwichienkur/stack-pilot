@@ -12,7 +12,11 @@ public static class DatabaseSeeder
     {
         using var scope = services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        await db.Database.MigrateAsync();
+
+        if (db.Database.IsRelational())
+            await db.Database.MigrateAsync();
+        else
+            await db.Database.EnsureCreatedAsync();
 
         if (await db.Permissions.AnyAsync()) return;
 
@@ -89,10 +93,36 @@ public static class DatabaseSeeder
                 Description = "Connect to PostgreSQL databases for schema discovery",
                 ConfigSchema = """{"type":"object","properties":{"host":{"type":"string"},"port":{"type":"string"},"databases":{"type":"string"}}}""",
                 Capabilities = """["database_scan"]"""
+            },
+            new ConnectorDefinition
+            {
+                Type = "gitlab_repository", Name = "GitLab Repository",
+                Description = "Connect to GitLab projects for code scanning and CI/CD tracking",
+                ConfigSchema = """{"type":"object","properties":{"baseUrl":{"type":"string"},"group":{"type":"string"},"projects":{"type":"string"}}}""",
+                Capabilities = """["repository_scan","code_indexing","cicd_tracking"]"""
             }
         };
 
         db.ConnectorDefinitions.AddRange(connectorDefs);
         await db.SaveChangesAsync();
+    }
+
+    public static async Task EnsureConnectorDefinitionsAsync(IServiceProvider services)
+    {
+        using var scope = services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        if (!await db.ConnectorDefinitions.AnyAsync(d => d.Type == "gitlab_repository"))
+        {
+            db.ConnectorDefinitions.Add(new ConnectorDefinition
+            {
+                Type = "gitlab_repository",
+                Name = "GitLab Repository",
+                Description = "Connect to GitLab projects for code scanning and CI/CD tracking",
+                ConfigSchema = """{"type":"object","properties":{"baseUrl":{"type":"string"},"group":{"type":"string"},"projects":{"type":"string"}}}""",
+                Capabilities = """["repository_scan","code_indexing","cicd_tracking"]"""
+            });
+            await db.SaveChangesAsync();
+        }
     }
 }

@@ -64,6 +64,7 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<ApplicationUser>(e =>
         {
             e.HasIndex(x => x.Email).IsUnique();
+            e.HasIndex(x => new { x.AuthProvider, x.ExternalId });
         });
 
         modelBuilder.Entity<OrganizationMember>(e =>

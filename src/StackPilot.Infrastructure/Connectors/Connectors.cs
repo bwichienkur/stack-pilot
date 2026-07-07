@@ -34,73 +34,12 @@ public abstract class ConnectorBase : IConnector
     }
 }
 
-public class GitHubRepositoryConnector : ConnectorBase
-{
-    public override string Type => "github_repository";
-    public override ConnectorCapabilities Capabilities =>
-        ConnectorCapabilities.RepositoryScan | ConnectorCapabilities.CodeIndexing | ConnectorCapabilities.WebhookReceive;
-
-    public override Task<ConnectionTestResult> TestConnectionAsync(ConnectorContext context, CancellationToken ct = default)
-    {
-        var config = ParseConfig(context.ConfigJson);
-        var hasToken = context.Credentials.ContainsKey("pat") || context.Credentials.ContainsKey("oauth_token");
-        var hasOwner = config.ContainsKey("owner");
-
-        if (!hasToken)
-            return Task.FromResult(new ConnectionTestResult { Success = false, Message = "GitHub token is required" });
-        if (!hasOwner)
-            return Task.FromResult(new ConnectionTestResult { Success = false, Message = "GitHub owner is required" });
-
-        return Task.FromResult(new ConnectionTestResult
-        {
-            Success = true,
-            Message = $"Connected to GitHub organization/user: {config["owner"]}",
-            Details = new() { ["owner"] = config["owner"], ["repositories"] = config.GetValueOrDefault("repositories", "all") }
-        });
-    }
-
-    public override Task<SyncResult> SyncAsync(ConnectorContext context, CancellationToken ct = default)
-    {
-        var config = ParseConfig(context.ConfigJson);
-        var repos = config.GetValueOrDefault("repositories", "sample-api,sample-web").Split(',');
-        return Task.FromResult(new SyncResult
-        {
-            Success = true,
-            ItemsProcessed = repos.Length,
-            Metadata = new() { ["repositories"] = repos, ["syncType"] = "repository" }
-        });
-    }
-}
-
-public class GitHubActionsConnector : ConnectorBase
-{
-    public override string Type => "github_actions";
-    public override ConnectorCapabilities Capabilities =>
-        ConnectorCapabilities.CiCdTracking | ConnectorCapabilities.WebhookReceive | ConnectorCapabilities.DeploymentTracking;
-
-    public override Task<ConnectionTestResult> TestConnectionAsync(ConnectorContext context, CancellationToken ct = default)
-    {
-        var hasToken = context.Credentials.ContainsKey("pat") || context.Credentials.ContainsKey("oauth_token");
-        return Task.FromResult(new ConnectionTestResult
-        {
-            Success = hasToken,
-            Message = hasToken ? "GitHub Actions connector ready" : "GitHub token is required"
-        });
-    }
-
-    public override Task<SyncResult> SyncAsync(ConnectorContext context, CancellationToken ct = default)
-    {
-        return Task.FromResult(new SyncResult
-        {
-            Success = true,
-            ItemsProcessed = 5,
-            Metadata = new() { ["workflowRuns"] = 5, ["syncType"] = "cicd" }
-        });
-    }
-}
-
 public class SqlServerConnector : ConnectorBase
 {
+    private readonly SqlServerDatabaseScanner _scanner;
+
+    public SqlServerConnector(SqlServerDatabaseScanner scanner) => _scanner = scanner;
+
     public override string Type => "sql_server";
     public override ConnectorCapabilities Capabilities => ConnectorCapabilities.DatabaseScan;
 
@@ -114,21 +53,33 @@ public class SqlServerConnector : ConnectorBase
         });
     }
 
-    public override Task<SyncResult> SyncAsync(ConnectorContext context, CancellationToken ct = default)
+    public override async Task<SyncResult> SyncAsync(ConnectorContext context, CancellationToken ct = default)
     {
         var config = ParseConfig(context.ConfigJson);
-        var databases = config.GetValueOrDefault("databases", "master").Split(',');
-        return Task.FromResult(new SyncResult
+        var databases = config.GetValueOrDefault("databases", "master").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var scanned = 0;
+
+        foreach (var db in databases)
+        {
+            var result = await _scanner.ScanAsync(context, db, ct);
+            if (result.Tables.Count > 0) scanned++;
+        }
+
+        return new SyncResult
         {
             Success = true,
-            ItemsProcessed = databases.Length,
+            ItemsProcessed = scanned,
             Metadata = new() { ["databases"] = databases, ["syncType"] = "database" }
-        });
+        };
     }
 }
 
 public class PostgreSQLConnector : ConnectorBase
 {
+    private readonly PostgreSqlDatabaseScanner _scanner;
+
+    public PostgreSQLConnector(PostgreSqlDatabaseScanner scanner) => _scanner = scanner;
+
     public override string Type => "postgresql";
     public override ConnectorCapabilities Capabilities => ConnectorCapabilities.DatabaseScan;
 
@@ -142,16 +93,24 @@ public class PostgreSQLConnector : ConnectorBase
         });
     }
 
-    public override Task<SyncResult> SyncAsync(ConnectorContext context, CancellationToken ct = default)
+    public override async Task<SyncResult> SyncAsync(ConnectorContext context, CancellationToken ct = default)
     {
         var config = ParseConfig(context.ConfigJson);
-        var databases = config.GetValueOrDefault("databases", "postgres").Split(',');
-        return Task.FromResult(new SyncResult
+        var databases = config.GetValueOrDefault("databases", "postgres").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var scanned = 0;
+
+        foreach (var db in databases)
+        {
+            var result = await _scanner.ScanAsync(context, db, ct);
+            if (result.Tables.Count > 0) scanned++;
+        }
+
+        return new SyncResult
         {
             Success = true,
-            ItemsProcessed = databases.Length,
+            ItemsProcessed = scanned,
             Metadata = new() { ["databases"] = databases, ["syncType"] = "database" }
-        });
+        };
     }
 }
 
@@ -169,69 +128,25 @@ public class ConnectorRegistry : IConnectorRegistry
         _connectors.TryGetValue(type, out var connector) ? connector : throw new KeyNotFoundException($"Connector type '{type}' not found");
 }
 
-public class RepositoryScanner : IRepositoryScanner
+public class DatabaseScannerRouter : IDatabaseScanner
 {
-    public Task<RepositoryScanResult> ScanAsync(ConnectorContext context, string repositoryName, CancellationToken ct = default)
-    {
-        return Task.FromResult(new RepositoryScanResult
-        {
-            RepositoryName = repositoryName,
-            ApplicationName = repositoryName,
-            Purpose = $"Enterprise application repository: {repositoryName}",
-            TechnologyStack = ["C#", ".NET 8", "PostgreSQL"],
-            Frameworks = ["ASP.NET Core", "Entity Framework Core"],
-            EntryPoints = ["Program.cs", "Startup.cs"],
-            ApiEndpoints = ["/api/users", "/api/orders", "/api/health"],
-            Dependencies =
-            [
-                new() { Name = "Microsoft.EntityFrameworkCore", Version = "8.0.11", IsOutdated = false },
-                new() { Name = "Newtonsoft.Json", Version = "12.0.3", IsOutdated = true }
-            ],
-            TestProjects = [$"{repositoryName}.Tests"],
-            SecurityRisks = ["Outdated Newtonsoft.Json package"],
-            RefactorOpportunities = ["Extract shared validation logic", "Add missing API integration tests"]
-        });
-    }
-}
+    private readonly PostgreSqlDatabaseScanner _postgres;
+    private readonly SqlServerDatabaseScanner _sqlServer;
 
-public class DatabaseScanner : IDatabaseScanner
-{
+    public DatabaseScannerRouter(PostgreSqlDatabaseScanner postgres, SqlServerDatabaseScanner sqlServer)
+    {
+        _postgres = postgres;
+        _sqlServer = sqlServer;
+    }
+
     public Task<DatabaseScanResult> ScanAsync(ConnectorContext context, string databaseName, CancellationToken ct = default)
     {
-        return Task.FromResult(new DatabaseScanResult
+        var scanner = context.ConnectorType switch
         {
-            DatabaseName = databaseName,
-            Tables =
-            [
-                new()
-                {
-                    Schema = "public", Name = "users",
-                    Columns =
-                    [
-                        new() { Name = "id", DataType = "uuid", IsNullable = false, IsPrimaryKey = true },
-                        new() { Name = "email", DataType = "varchar(320)", IsNullable = false },
-                        new() { Name = "created_at", DataType = "timestamptz", IsNullable = false }
-                    ],
-                    Indexes = ["pk_users", "idx_users_email"],
-                    RowCount = 1500
-                },
-                new()
-                {
-                    Schema = "public", Name = "orders",
-                    Columns =
-                    [
-                        new() { Name = "id", DataType = "uuid", IsNullable = false, IsPrimaryKey = true },
-                        new() { Name = "user_id", DataType = "uuid", IsNullable = false, IsForeignKey = true },
-                        new() { Name = "status", DataType = "varchar(50)", IsNullable = false }
-                    ],
-                    Indexes = ["pk_orders", "idx_orders_user_id"]
-                }
-            ],
-            Relationships =
-            [
-                new() { FromTable = "orders", FromColumn = "user_id", ToTable = "users", ToColumn = "id" }
-            ],
-            RiskyPatterns = ["No soft-delete on orders table"]
-        });
+            "postgresql" => (IDatabaseScanner)_postgres,
+            "sql_server" => _sqlServer,
+            _ => _postgres
+        };
+        return scanner.ScanAsync(context, databaseName, ct);
     }
 }

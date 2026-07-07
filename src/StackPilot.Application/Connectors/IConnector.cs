@@ -17,6 +17,7 @@ public class ConnectorContext
     public Guid OrganizationId { get; init; }
     public Guid WorkspaceId { get; init; }
     public Guid ConnectorInstanceId { get; init; }
+    public string ConnectorType { get; init; } = string.Empty;
     public string ConfigJson { get; init; } = "{}";
     public IReadOnlyDictionary<string, string> Credentials { get; init; } = new Dictionary<string, string>();
 }

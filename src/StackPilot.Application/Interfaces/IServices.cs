@@ -8,6 +8,7 @@ public interface IAuthService
     Task<AuthResponse> RegisterAsync(RegisterRequest request, CancellationToken ct = default);
     Task<AuthResponse> LoginAsync(LoginRequest request, CancellationToken ct = default);
     Task<UserDto?> GetCurrentUserAsync(Guid userId, CancellationToken ct = default);
+    Task<AuthResponse> HandleSsoLoginAsync(string email, string? firstName, string? lastName, string externalId, string provider, CancellationToken ct = default);
 }
 
 public interface IOrganizationService

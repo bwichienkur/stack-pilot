@@ -66,17 +66,18 @@ StackPilot/
 ## MVP Features
 
 - Multi-tenant SaaS foundation (orgs, workspaces, users, RBAC)
-- JWT authentication with audit logging
-- Connector framework (GitHub, SQL Server, PostgreSQL, GitHub Actions)
-- Repository and database scanning
+- JWT authentication with OIDC SSO support
+- Real GitHub API integration (repos, languages, workflow runs)
+- GitLab connector
+- Real PostgreSQL and SQL Server schema scanners
+- Connector framework (GitHub, GitLab, SQL Server, PostgreSQL, GitHub Actions)
+- OpenAI + Anthropic AI providers with composite fallback
+- OpenTelemetry tracing and metrics
+- Integration test suite
 - Knowledge graph with impact analysis
-- Interactive architecture map (React Flow)
-- Ticketing system with full lifecycle
-- AI requirements and implementation plan generation
-- Approval workflow (technical, security, QA, UAT, release)
-- QA evidence and UAT decision flows
-- Production release scheduling
-- AI assistant with governance and audit trail
+- Ticketing, approvals, AI requirements generation
+- Tauri desktop app scaffold
+- Expo mobile app scaffold
 - Premium dark-mode enterprise UI
 
 ## Documentation

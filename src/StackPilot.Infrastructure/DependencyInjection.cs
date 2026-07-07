@@ -5,7 +5,9 @@ using StackPilot.Application.AI;
 using StackPilot.Application.Common;
 using StackPilot.Application.Connectors;
 using StackPilot.Application.Interfaces;
+using StackPilot.Infrastructure.AI;
 using StackPilot.Infrastructure.Connectors;
+using StackPilot.Infrastructure.External;
 using StackPilot.Infrastructure.Jobs;
 using StackPilot.Infrastructure.Persistence;
 using StackPilot.Infrastructure.Security;
@@ -23,6 +25,11 @@ public static class DependencyInjection
             options.UseNpgsql(configuration.GetConnectionString("DefaultConnection")
                 ?? "Host=localhost;Port=5432;Database=stackpilot;Username=stackpilot;Password=stackpilot"));
 
+        services.AddHttpClient<IGitHubApiClient, GitHubApiClient>();
+        services.AddHttpClient<IGitLabApiClient, GitLabApiClient>();
+        services.AddHttpClient<OpenAiProvider>();
+        services.AddHttpClient<AnthropicProvider>();
+
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IOrganizationService, OrganizationService>();
         services.AddScoped<IConnectorService, ConnectorService>();
@@ -38,14 +45,22 @@ public static class DependencyInjection
         services.AddSingleton<ICredentialEncryptionService, CredentialEncryptionService>();
         services.AddSingleton<IBackgroundJobService, BackgroundJobService>();
 
-        services.AddSingleton<IAiProvider, MockAiProvider>();
+        services.AddSingleton<MockAiProvider>();
+        services.AddSingleton<OpenAiProvider>();
+        services.AddSingleton<AnthropicProvider>();
+        services.AddSingleton<IAiProvider, CompositeAiProvider>();
+
+        services.AddSingleton<PostgreSqlDatabaseScanner>();
+        services.AddSingleton<SqlServerDatabaseScanner>();
+        services.AddSingleton<IDatabaseScanner, DatabaseScannerRouter>();
+        services.AddSingleton<IRepositoryScanner, RepositoryScanner>();
+
         services.AddSingleton<IConnector, GitHubRepositoryConnector>();
         services.AddSingleton<IConnector, GitHubActionsConnector>();
+        services.AddSingleton<IConnector, GitLabRepositoryConnector>();
         services.AddSingleton<IConnector, SqlServerConnector>();
         services.AddSingleton<IConnector, PostgreSQLConnector>();
         services.AddSingleton<IConnectorRegistry, ConnectorRegistry>();
-        services.AddSingleton<IRepositoryScanner, RepositoryScanner>();
-        services.AddSingleton<IDatabaseScanner, DatabaseScanner>();
 
         services.AddScoped<ConnectorSyncJob>();
         services.AddScoped<RepositoryScanJob>();

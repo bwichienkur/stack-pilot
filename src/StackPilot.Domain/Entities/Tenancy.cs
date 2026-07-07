@@ -36,6 +36,8 @@ public class ApplicationUser : BaseEntity
     public string? FirstName { get; set; }
     public string? LastName { get; set; }
     public string? AvatarUrl { get; set; }
+    public string? ExternalId { get; set; }
+    public string? AuthProvider { get; set; }
     public bool IsActive { get; set; } = true;
     public DateTime? LastLoginAt { get; set; }
 
