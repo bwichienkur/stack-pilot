@@ -8,7 +8,7 @@ import { PageSkeleton } from "@/components/page-skeleton";
 import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast";
-import { Bot, CheckCircle, XCircle } from "lucide-react";
+import { Bot, CheckCircle, XCircle, GitBranch, ExternalLink } from "lucide-react";
 
 interface TicketDetail {
   id: string;
@@ -37,12 +37,38 @@ interface ParsedRequirements {
   citations?: { nodeId?: string; excerpt?: string }[];
 }
 
+interface BuildRun {
+  id: string;
+  ticketId?: string;
+  status: string;
+  conclusion?: string;
+  logsUrl?: string;
+  pullRequestUrl?: string;
+  startedAt?: string;
+  completedAt?: string;
+}
+
+interface ImpactNode {
+  id: string;
+  name: string;
+  nodeType: string;
+  riskScore?: number;
+}
+
+interface ImpactAnalysis {
+  nodeId: string;
+  impactedNodes: ImpactNode[];
+  paths: { sourceNodeId: string; targetNodeId: string; edgeType: string }[];
+}
+
 export default function TicketDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { token, orgId, workspaceId } = useAuth();
   const router = useRouter();
   const { showToast } = useToast();
   const [ticket, setTicket] = useState<TicketDetail | null>(null);
+  const [buildRuns, setBuildRuns] = useState<BuildRun[]>([]);
+  const [impact, setImpact] = useState<ImpactAnalysis | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("details");
 
@@ -55,11 +81,29 @@ export default function TicketDetailPage() {
     try {
       const data = await api<TicketDetail>(`/tickets/${id}`, {}, token, orgId, workspaceId);
       setTicket(data);
+      const runs = await api<BuildRun[]>(`/tickets/${id}/build-runs`, {}, token, orgId, workspaceId);
+      setBuildRuns(runs);
+
+      const parsed = parseRequirements(data.aiRequirementsJson);
+      const citationNodeId = parsed?.citations?.find((c) => c.nodeId)?.nodeId;
+      if (citationNodeId) {
+        try {
+          const impactData = await api<ImpactAnalysis>(`/graph/nodes/${citationNodeId}/impact`, { method: "POST" }, token, orgId, workspaceId);
+          setImpact(impactData);
+        } catch {
+          setImpact(null);
+        }
+      }
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Failed to load ticket", "error");
     } finally {
       setLoading(false);
     }
+  };
+
+  const parseRequirements = (json?: string): ParsedRequirements | null => {
+    if (!json) return null;
+    try { return JSON.parse(json); } catch { return null; }
   };
 
   const generateRequirements = async () => {
@@ -99,12 +143,12 @@ export default function TicketDetailPage() {
   if (loading) return <AppLayout><PageSkeleton rows={4} /></AppLayout>;
   if (!ticket) return <AppLayout><p className="text-zinc-400">Ticket not found</p></AppLayout>;
 
-  const parsed: ParsedRequirements | null = (() => {
-    if (!ticket.aiRequirementsJson) return null;
-    try { return JSON.parse(ticket.aiRequirementsJson); } catch { return null; }
-  })();
+  const parsed = parseRequirements(ticket.aiRequirementsJson);
+  const planSections = ticket.implementationPlanJson?.includes("##")
+    ? ticket.implementationPlanJson.split(/(?=^## )/m).filter(Boolean)
+    : ticket.implementationPlanJson ? [ticket.implementationPlanJson] : [];
 
-  const tabs = ["details", "requirements", "plan", "approvals", "activity"];
+  const tabs = ["details", "requirements", "plan", "impact", "builds", "approvals", "activity"];
   const canApprove = ticket.status === "AwaitingApproval" || ticket.status === "RequirementsDrafted";
 
   return (
@@ -147,12 +191,12 @@ export default function TicketDetailPage() {
           </div>
         )}
 
-        <div className="flex gap-1 border-b border-zinc-800">
+        <div className="flex gap-1 border-b border-zinc-800 overflow-x-auto">
           {tabs.map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`px-4 py-2 text-sm capitalize transition-colors ${activeTab === tab ? "text-indigo-400 border-b-2 border-indigo-400" : "text-zinc-400 hover:text-zinc-200"}`}
+              className={`px-4 py-2 text-sm capitalize transition-colors whitespace-nowrap ${activeTab === tab ? "text-indigo-400 border-b-2 border-indigo-400" : "text-zinc-400 hover:text-zinc-200"}`}
             >
               {tab}
             </button>
@@ -180,7 +224,7 @@ export default function TicketDetailPage() {
                   {parsed.acceptanceCriteria && <div><h4 className="text-sm text-zinc-400">Acceptance Criteria</h4><p className="text-zinc-200 mt-1 whitespace-pre-wrap">{parsed.acceptanceCriteria}</p></div>}
                   {parsed.citations && parsed.citations.length > 0 && (
                     <div>
-                      <h4 className="text-sm text-zinc-400">Citations</h4>
+                      <h4 className="text-sm text-zinc-400">Citations (graph-grounded)</h4>
                       <ul className="mt-2 space-y-1">{parsed.citations.map((c, i) => (
                         <li key={i} className="text-xs text-indigo-300">[{c.nodeId || "graph"}] {c.excerpt}</li>
                       ))}</ul>
@@ -197,7 +241,69 @@ export default function TicketDetailPage() {
         {activeTab === "plan" && ticket.implementationPlanJson && (
           <Card>
             <CardHeader><CardTitle>Implementation Plan</CardTitle></CardHeader>
-            <CardContent><pre className="text-sm text-zinc-300 whitespace-pre-wrap">{ticket.implementationPlanJson}</pre></CardContent>
+            <CardContent className="space-y-4">
+              {planSections.map((section, i) => (
+                <pre key={i} className="text-sm text-zinc-300 whitespace-pre-wrap">{section}</pre>
+              ))}
+            </CardContent>
+          </Card>
+        )}
+
+        {activeTab === "impact" && (
+          <Card>
+            <CardHeader><CardTitle>Impact Analysis</CardTitle></CardHeader>
+            <CardContent>
+              {impact && impact.impactedNodes.length > 0 ? (
+                <div className="space-y-3">
+                  <p className="text-sm text-zinc-400">{impact.impactedNodes.length} impacted graph nodes from requirement citations</p>
+                  {impact.impactedNodes.map((n) => (
+                    <div key={n.id} className="flex items-center justify-between py-2 border-b border-zinc-800">
+                      <span className="text-zinc-200">{n.name}</span>
+                      <div className="flex gap-2">
+                        <Badge variant="neutral">{n.nodeType}</Badge>
+                        {n.riskScore !== undefined && <Badge variant="warning">Risk {n.riskScore}</Badge>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-zinc-400">Generate requirements with graph citations to see impact analysis.</p>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {activeTab === "builds" && (
+          <Card>
+            <CardHeader><CardTitle className="flex items-center gap-2"><GitBranch className="h-5 w-5" /> Build Runs &amp; PRs</CardTitle></CardHeader>
+            <CardContent>
+              {buildRuns.length === 0 ? (
+                <p className="text-zinc-400">No linked build runs. PRs are linked via GitHub Actions webhooks when branch names include the ticket number.</p>
+              ) : (
+                <div className="space-y-3">
+                  {buildRuns.map((b) => (
+                    <div key={b.id} className="flex items-center justify-between py-3 border-b border-zinc-800">
+                      <div>
+                        <Badge variant={b.conclusion === "success" ? "success" : b.conclusion === "failure" ? "danger" : "neutral"}>{b.status}</Badge>
+                        {b.conclusion && <span className="text-sm text-zinc-400 ml-2">{b.conclusion}</span>}
+                      </div>
+                      <div className="flex gap-2">
+                        {b.pullRequestUrl && (
+                          <a href={b.pullRequestUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-400 text-sm flex items-center gap-1">
+                            PR <ExternalLink className="h-3 w-3" />
+                          </a>
+                        )}
+                        {b.logsUrl && (
+                          <a href={b.logsUrl} target="_blank" rel="noopener noreferrer" className="text-zinc-400 text-sm flex items-center gap-1">
+                            Logs <ExternalLink className="h-3 w-3" />
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
           </Card>
         )}
 

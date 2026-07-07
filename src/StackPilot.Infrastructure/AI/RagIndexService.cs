@@ -1,7 +1,6 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using StackPilot.Application.AI;
-using StackPilot.Application.Common;
 using StackPilot.Application.Interfaces;
 using StackPilot.Domain.Entities;
 using StackPilot.Infrastructure.Persistence;
@@ -19,6 +18,9 @@ public class RagIndexService : IRagIndexService
         _provider = provider;
     }
 
+    private bool UsePgVector =>
+        _db.Database.IsRelational() && _db.Database.ProviderName?.Contains("Npgsql", StringComparison.OrdinalIgnoreCase) == true;
+
     public async Task IndexRepositoryScanAsync(Guid organizationId, Guid workspaceId, Guid? graphNodeId, string repositoryName, string scanResultsJson, CancellationToken ct = default)
     {
         var chunks = BuildChunks(repositoryName, scanResultsJson);
@@ -29,7 +31,7 @@ public class RagIndexService : IRagIndexService
         for (var i = 0; i < chunks.Count; i++)
         {
             var embedding = i < embedResult.Embeddings.Count ? embedResult.Embeddings[i] : Array.Empty<float>();
-            _db.GraphChunks.Add(new GraphChunk
+            var chunk = new GraphChunk
             {
                 OrganizationId = organizationId,
                 WorkspaceId = workspaceId,
@@ -37,10 +39,18 @@ public class RagIndexService : IRagIndexService
                 Content = chunks[i].Content,
                 SourceType = chunks[i].SourceType,
                 EmbeddingJson = JsonSerializer.Serialize(embedding)
-            });
-        }
+            };
+            _db.GraphChunks.Add(chunk);
+            await _db.SaveChangesAsync(ct);
 
-        await _db.SaveChangesAsync(ct);
+            if (UsePgVector && embedding.Length > 0)
+            {
+                var vectorLiteral = "[" + string.Join(",", embedding.Select(v => v.ToString(System.Globalization.CultureInfo.InvariantCulture))) + "]";
+                await _db.Database.ExecuteSqlRawAsync(
+                    """UPDATE "GraphChunks" SET "EmbeddingVector" = {0}::vector WHERE "Id" = {1}""",
+                    vectorLiteral, chunk.Id);
+            }
+        }
     }
 
     public async Task<List<RagSearchResult>> SearchAsync(Guid workspaceId, string query, int topK = 10, CancellationToken ct = default)
@@ -49,6 +59,24 @@ public class RagIndexService : IRagIndexService
         if (queryEmbed.Embeddings.Count == 0) return [];
 
         var queryVector = queryEmbed.Embeddings[0];
+
+        if (UsePgVector && queryVector.Length > 0)
+        {
+            var vectorLiteral = "[" + string.Join(",", queryVector.Select(v => v.ToString(System.Globalization.CultureInfo.InvariantCulture))) + "]";
+            var rows = await _db.Database.SqlQueryRaw<RagChunkRow>(
+                """
+                SELECT "GraphNodeId", "Content", 1 - ("EmbeddingVector" <=> {0}::vector) AS "Score"
+                FROM "GraphChunks"
+                WHERE "WorkspaceId" = {1} AND "EmbeddingVector" IS NOT NULL
+                ORDER BY "EmbeddingVector" <=> {0}::vector
+                LIMIT {2}
+                """,
+                vectorLiteral, workspaceId, topK).ToListAsync(ct);
+
+            if (rows.Count > 0)
+                return rows.Select(r => new RagSearchResult(r.GraphNodeId, r.Content, r.Score)).ToList();
+        }
+
         var chunks = await _db.GraphChunks
             .Where(c => c.WorkspaceId == workspaceId)
             .Take(500)
@@ -63,6 +91,13 @@ public class RagIndexService : IRagIndexService
             .OrderByDescending(r => r.Score)
             .Take(topK)
             .ToList();
+    }
+
+    private sealed class RagChunkRow
+    {
+        public Guid? GraphNodeId { get; set; }
+        public string Content { get; set; } = "";
+        public double Score { get; set; }
     }
 
     private static List<(string Content, string SourceType)> BuildChunks(string repositoryName, string scanResultsJson)

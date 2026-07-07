@@ -20,6 +20,7 @@ public class Ticket : BaseEntity, ITenantEntity
     public string? ImplementationPlanJson { get; set; }
     public decimal? RiskScore { get; set; }
     public decimal? ConfidenceScore { get; set; }
+    public string? ExternalReference { get; set; }
 
     public Workspace Workspace { get; set; } = null!;
     public ApplicationUser Requester { get; set; } = null!;

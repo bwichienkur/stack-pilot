@@ -340,7 +340,16 @@ public class IntelligenceService : IIntelligenceService
             .Where(b => b.ConnectorId != null && connectorIds.Contains(b.ConnectorId.Value))
             .OrderByDescending(b => b.StartedAt ?? b.CreatedAt)
             .Take(50)
-            .Select(b => new BuildRunDto(b.Id, b.Status.ToString(), b.Conclusion, b.LogsUrl, b.PullRequestUrl, b.StartedAt, b.CompletedAt))
+            .Select(b => new BuildRunDto(b.Id, b.TicketId, b.Status.ToString(), b.Conclusion, b.LogsUrl, b.PullRequestUrl, b.StartedAt, b.CompletedAt))
+            .ToListAsync(ct);
+    }
+
+    public async Task<List<BuildRunDto>> GetBuildRunsByTicketAsync(Guid ticketId, CancellationToken ct = default)
+    {
+        return await _db.BuildRuns
+            .Where(b => b.TicketId == ticketId)
+            .OrderByDescending(b => b.StartedAt ?? b.CreatedAt)
+            .Select(b => new BuildRunDto(b.Id, b.TicketId, b.Status.ToString(), b.Conclusion, b.LogsUrl, b.PullRequestUrl, b.StartedAt, b.CompletedAt))
             .ToListAsync(ct);
     }
 }

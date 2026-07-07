@@ -69,6 +69,61 @@ public class SsoController : ControllerBase
                 loginUrl = "/api/v1/auth/oidc/login"
             });
         }
+        if (_config.GetValue<bool>("Authentication:Saml:Enabled"))
+        {
+            providers.Add(new
+            {
+                type = "saml",
+                name = _config["Authentication:Saml:DisplayName"] ?? "SAML 2.0 SSO",
+                loginUrl = "/api/v1/auth/saml/login",
+                metadataUrl = "/api/v1/auth/saml/metadata"
+            });
+        }
         return Ok(ApiResponse<object>.Ok(providers));
+    }
+
+    [HttpGet("saml/login")]
+    [AllowAnonymous]
+    public IActionResult SamlLogin([FromQuery] string? returnUrl = null)
+    {
+        if (!_config.GetValue<bool>("Authentication:Saml:Enabled"))
+            return BadRequest(ApiResponse<object>.Fail(new ApiError { Code = "SSO_DISABLED", Message = "SAML SSO is not enabled" }));
+
+        var entityId = _config["Authentication:Saml:EntityId"] ?? "stackpilot";
+        var acsUrl = _config["Authentication:Saml:AcsUrl"] ?? $"{Request.Scheme}://{Request.Host}/api/v1/auth/saml/acs";
+        return Ok(ApiResponse<object>.Ok(new
+        {
+            message = "SAML SSO is configured. Initiate login via your IdP using SP metadata.",
+            entityId,
+            acsUrl,
+            returnUrl
+        }));
+    }
+
+    [HttpGet("saml/metadata")]
+    [AllowAnonymous]
+    public IActionResult SamlMetadata()
+    {
+        if (!_config.GetValue<bool>("Authentication:Saml:Enabled"))
+            return NotFound();
+
+        var entityId = _config["Authentication:Saml:EntityId"] ?? "stackpilot";
+        var acsUrl = _config["Authentication:Saml:AcsUrl"] ?? $"{Request.Scheme}://{Request.Host}/api/v1/auth/saml/acs";
+        var metadata = $"""<?xml version="1.0"?><EntityDescriptor xmlns="urn:oasis:names:tc:SAML:2.0:metadata" entityID="{entityId}"><SPSSODescriptor protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol"><AssertionConsumerService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST" Location="{acsUrl}" index="0"/></SPSSODescriptor></EntityDescriptor>""";
+        return Content(metadata, "application/xml");
+    }
+
+    [HttpPost("saml/acs")]
+    [AllowAnonymous]
+    public IActionResult SamlAcs()
+    {
+        if (!_config.GetValue<bool>("Authentication:Saml:Enabled"))
+            return BadRequest(ApiResponse<object>.Fail(new ApiError { Code = "SSO_DISABLED", Message = "SAML SSO is not enabled" }));
+
+        return BadRequest(ApiResponse<object>.Fail(new ApiError
+        {
+            Code = "SAML_NOT_CONFIGURED",
+            Message = "SAML assertion consumer is scaffolded. Configure Authentication:Saml:IdpCertificate and integrate Sustainsys.Saml2 for production."
+        }));
     }
 }

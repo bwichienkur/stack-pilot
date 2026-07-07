@@ -1,9 +1,19 @@
+using StackPilot.Application.DTOs;
+
 namespace StackPilot.Application.Interfaces;
 
 public interface IPermissionValidator
 {
     Task<bool> UserHasPermissionAsync(Guid userId, Guid organizationId, string permission, CancellationToken ct = default);
     Task EnsurePermissionAsync(Guid userId, Guid organizationId, string permission, CancellationToken ct = default);
+}
+
+public interface IApprovalGateService
+{
+    Task EnsureDefaultGatesAsync(Guid organizationId, CancellationToken ct = default);
+    Task<List<ApprovalGateDto>> GetGatesAsync(Guid organizationId, CancellationToken ct = default);
+    Task<bool> AreAllGatesSatisfiedAsync(Guid ticketId, CancellationToken ct = default);
+    Task<List<string>> GetPendingGateTypesAsync(Guid ticketId, CancellationToken ct = default);
 }
 
 public interface IRagIndexService

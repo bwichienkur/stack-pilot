@@ -59,6 +59,7 @@ public class ConnectorSyncJob
         if (instance is null) return;
 
         tenant.SetOrganization(instance.OrganizationId);
+        await db.SetOrganizationAsync(instance.OrganizationId, ct);
 
         var history = new SyncHistory { ConnectorId = connectorId, Status = SyncStatus.Running, StartedAt = DateTime.UtcNow };
         db.SyncHistories.Add(history);
@@ -91,6 +92,9 @@ public class ConnectorSyncJob
             instance.LastSyncAt = DateTime.UtcNow;
             instance.Status = ConnectorStatus.Active;
             instance.HealthStatus = HealthStatus.Healthy;
+
+            if (instance.Definition.Type == "jira")
+                await SyncJiraTicketsAsync(db, instance, result.Metadata, ct);
 
             var repoNames = ExtractRepositoryNames(result.Metadata);
             foreach (var repo in repoNames)
@@ -128,6 +132,67 @@ public class ConnectorSyncJob
             throw;
         }
     }
+
+    private static async Task SyncJiraTicketsAsync(AppDbContext db, ConnectorInstance instance, Dictionary<string, object>? metadata, CancellationToken ct)
+    {
+        if (metadata is null || !metadata.TryGetValue("issues", out var issuesObj)) return;
+        if (issuesObj is not List<Dictionary<string, string>> issues) return;
+
+        foreach (var issue in issues)
+        {
+            if (!issue.TryGetValue("externalId", out var externalId)) continue;
+            var existing = await db.Tickets.FirstOrDefaultAsync(t =>
+                t.WorkspaceId == instance.WorkspaceId && t.ExternalReference == externalId, ct);
+
+            var title = issue.GetValueOrDefault("title") ?? externalId;
+            var description = issue.GetValueOrDefault("description");
+            var priority = MapJiraPriority(issue.GetValueOrDefault("priority"));
+            var ticketType = MapJiraType(issue.GetValueOrDefault("ticketType"));
+
+            if (existing is null)
+            {
+                db.Tickets.Add(new Ticket
+                {
+                    OrganizationId = instance.OrganizationId,
+                    WorkspaceId = instance.WorkspaceId,
+                    Title = title,
+                    Description = description,
+                    Priority = priority,
+                    TicketType = ticketType,
+                    ExternalReference = externalId,
+                    Status = TicketStatus.Submitted,
+                    RequesterId = await db.OrganizationMembers
+                        .Where(m => m.OrganizationId == instance.OrganizationId)
+                        .Select(m => m.UserId)
+                        .FirstAsync(ct)
+                });
+            }
+            else
+            {
+                existing.Title = title;
+                existing.Description = description;
+                existing.Priority = priority;
+                existing.TicketType = ticketType;
+            }
+        }
+
+        await db.SaveChangesAsync(ct);
+    }
+
+    private static TicketPriority MapJiraPriority(string? priority) => priority?.ToLowerInvariant() switch
+    {
+        "highest" or "high" => TicketPriority.High,
+        "low" or "lowest" => TicketPriority.Low,
+        "critical" => TicketPriority.Critical,
+        _ => TicketPriority.Medium
+    };
+
+    private static TicketType MapJiraType(string? type) => type?.ToLowerInvariant() switch
+    {
+        "bug" => TicketType.Bug,
+        "story" or "epic" => TicketType.NewFeature,
+        _ => TicketType.Enhancement
+    };
 
     private static IEnumerable<string> ExtractRepositoryNames(Dictionary<string, object>? metadata)
     {
@@ -170,6 +235,7 @@ public class RepositoryScanJob
             .FirstAsync(c => c.Id == connectorId, ct);
 
         tenant.SetOrganization(instance.OrganizationId);
+        await db.SetOrganizationAsync(instance.OrganizationId, ct);
 
         var scan = await db.RepositoryScans
             .Where(s => s.ConnectorId == connectorId && s.RepositoryName == repositoryName && s.Status == ScanStatus.Pending)
@@ -264,6 +330,7 @@ public class DatabaseScanJob
             .FirstAsync(c => c.Id == connectorId, ct);
 
         tenant.SetOrganization(instance.OrganizationId);
+        await db.SetOrganizationAsync(instance.OrganizationId, ct);
 
         var scan = await db.DatabaseScans
             .Where(s => s.ConnectorId == connectorId && s.DatabaseName == databaseName && s.Status == ScanStatus.Pending)
@@ -356,7 +423,10 @@ public class GenerateRequirementsJob
 
         var ticket = await db.Tickets.IgnoreQueryFilters().FirstOrDefaultAsync(t => t.Id == ticketId, ct);
         if (ticket is not null)
+        {
             tenant.SetOrganization(ticket.OrganizationId);
+            await db.SetOrganizationAsync(ticket.OrganizationId, ct);
+        }
 
         await aiService.GenerateRequirementsAsync(ticketId, ct);
     }

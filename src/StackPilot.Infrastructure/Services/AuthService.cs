@@ -237,11 +237,13 @@ public class OrganizationService : IOrganizationService
 {
     private readonly AppDbContext _db;
     private readonly ITenantContext _tenant;
+    private readonly IApprovalGateService _approvalGates;
 
-    public OrganizationService(AppDbContext db, ITenantContext tenant)
+    public OrganizationService(AppDbContext db, ITenantContext tenant, IApprovalGateService approvalGates)
     {
         _db = db;
         _tenant = tenant;
+        _approvalGates = approvalGates;
     }
 
     public async Task<OrganizationDto> CreateAsync(CreateOrganizationRequest request, Guid userId, CancellationToken ct = default)
@@ -266,6 +268,7 @@ public class OrganizationService : IOrganizationService
         };
         _db.Workspaces.Add(workspace);
         await _db.SaveChangesAsync(ct);
+        await _approvalGates.EnsureDefaultGatesAsync(org.Id, ct);
 
         return new OrganizationDto(org.Id, org.Name, org.Slug, org.Plan.ToString(), org.IsActive);
     }

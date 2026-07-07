@@ -17,8 +17,9 @@ public class TicketService : ITicketService
     private readonly IBackgroundJobService _jobs;
     private readonly IPermissionValidator _permissions;
     private readonly INotificationService _notifications;
+    private readonly IApprovalGateService _approvalGates;
 
-    public TicketService(AppDbContext db, ITenantContext tenant, IAuditService audit, IBackgroundJobService jobs, IPermissionValidator permissions, INotificationService notifications)
+    public TicketService(AppDbContext db, ITenantContext tenant, IAuditService audit, IBackgroundJobService jobs, IPermissionValidator permissions, INotificationService notifications, IApprovalGateService approvalGates)
     {
         _db = db;
         _tenant = tenant;
@@ -26,6 +27,7 @@ public class TicketService : ITicketService
         _jobs = jobs;
         _permissions = permissions;
         _notifications = notifications;
+        _approvalGates = approvalGates;
     }
 
     public async Task<PagedResult<TicketDto>> GetByWorkspaceAsync(Guid workspaceId, PagedRequest request, CancellationToken ct = default)
@@ -128,6 +130,28 @@ public class TicketService : ITicketService
         return tickets.Select(MapTicket).ToList();
     }
 
+    public async Task<List<TicketDto>> GetPendingQaAsync(Guid workspaceId, CancellationToken ct = default)
+    {
+        var tickets = await _db.Tickets
+            .Where(t => t.WorkspaceId == workspaceId &&
+                (t.Status == TicketStatus.DeployedToTest || t.Status == TicketStatus.QaInProgress || t.Status == TicketStatus.QaFailed))
+            .OrderByDescending(t => t.CreatedAt)
+            .ToListAsync(ct);
+
+        return tickets.Select(MapTicket).ToList();
+    }
+
+    public async Task<List<TicketDto>> GetPendingUatAsync(Guid workspaceId, CancellationToken ct = default)
+    {
+        var tickets = await _db.Tickets
+            .Where(t => t.WorkspaceId == workspaceId &&
+                (t.Status == TicketStatus.QaPassed || t.Status == TicketStatus.UatInProgress || t.Status == TicketStatus.UatRejected))
+            .OrderByDescending(t => t.CreatedAt)
+            .ToListAsync(ct);
+
+        return tickets.Select(MapTicket).ToList();
+    }
+
     public async Task<ApprovalDto> SubmitApprovalAsync(Guid ticketId, SubmitApprovalRequest request, Guid approverId, CancellationToken ct = default)
     {
         var ticket = await _db.Tickets.FindAsync([ticketId], ct)
@@ -150,9 +174,13 @@ public class TicketService : ITicketService
         };
 
         _db.Approvals.Add(approval);
+        await _db.SaveChangesAsync(ct);
 
         if (decision == ApprovalDecision.Approved)
-            ticket.Status = TicketStatus.Approved;
+        {
+            var allSatisfied = await _approvalGates.AreAllGatesSatisfiedAsync(ticketId, ct);
+            ticket.Status = allSatisfied ? TicketStatus.Approved : TicketStatus.AwaitingApproval;
+        }
         else
             ticket.Status = TicketStatus.RequirementsDrafted;
 

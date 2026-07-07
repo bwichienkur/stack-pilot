@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AppLayout } from "@/components/layout/sidebar";
 import { Card, Badge, Button } from "@/components/ui";
 import { useAuth } from "@/lib/auth-context";
-import { api } from "@/lib/utils";
+import { useTickets } from "@/lib/api-hooks";
 import { Plus } from "lucide-react";
 import { PageSkeleton } from "@/components/page-skeleton";
 import { EmptyState } from "@/components/empty-state";
@@ -41,29 +41,14 @@ const columns: { key: string; label: string; statuses: string[] }[] = [
 ];
 
 export default function TicketsPage() {
-  const { token, orgId, workspaceId } = useAuth();
+  const { token, workspaceId } = useAuth();
   const router = useRouter();
-  const [tickets, setTickets] = useState<Ticket[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data, isLoading } = useTickets();
+  const tickets = (data?.items ?? []) as Ticket[];
 
   useEffect(() => {
-    if (!token) { router.push("/login"); return; }
-    if (workspaceId) loadTickets();
-    else setLoading(false);
-  }, [token, workspaceId]);
-
-  const loadTickets = async () => {
-    try {
-      const data = await api<{ items: Ticket[] }>(
-        `/workspaces/${workspaceId}/tickets?page=1&pageSize=100`, {}, token, orgId, workspaceId
-      );
-      setTickets(data.items || []);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
+    if (!token) router.push("/login");
+  }, [token, router]);
 
   if (!token) return null;
 
@@ -80,7 +65,7 @@ export default function TicketsPage() {
 
         {!workspaceId ? (
           <EmptyState title="No workspace" description="Create a workspace to manage tickets." actionLabel="Go to Dashboard" actionHref="/" />
-        ) : loading ? (
+        ) : isLoading ? (
           <PageSkeleton rows={6} />
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 overflow-x-auto">
