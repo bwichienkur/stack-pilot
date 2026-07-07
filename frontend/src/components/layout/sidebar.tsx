@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, GitBranch, Network, FileText, Lightbulb,
   Ticket, CheckCircle, FlaskConical, Rocket, ScrollText, Settings,
-  Plug, Bot, ChevronLeft, ChevronRight, LogOut
+  Plug, Bot, ChevronLeft, ChevronRight, LogOut, Calendar
 } from "lucide-react";
 import { cn, api } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
@@ -26,6 +26,7 @@ const navItems = [
   { href: "/qa", label: "QA Queue", icon: FlaskConical },
   { href: "/uat", label: "UAT Queue", icon: CheckCircle },
   { href: "/deployments", label: "Deployments", icon: Rocket },
+  { href: "/releases", label: "Releases", icon: Calendar },
   { href: "/audit", label: "Audit Logs", icon: ScrollText },
   { href: "/settings", label: "Settings", icon: Settings },
 ];

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Input, Card, CardContent } from "@/components/ui";
 import { useAuth } from "@/lib/auth-context";
@@ -19,8 +19,11 @@ export default function OnboardingPage() {
   const [wsName, setWsName] = useState("Default");
   const [loading, setLoading] = useState(false);
 
+  useEffect(() => {
+    if (!token) router.push("/login");
+  }, [token, router]);
+
   if (!token) {
-    router.push("/login");
     return null;
   }
 

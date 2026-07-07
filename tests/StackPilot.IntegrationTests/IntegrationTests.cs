@@ -287,6 +287,43 @@ public class AuthIntegrationTests : IClassFixture<StackPilotWebApplicationFactor
     }
 
     [Fact]
+    public async Task ScheduledReleases_List_Returns_For_Workspace()
+    {
+        var email = $"release_{Guid.NewGuid():N}@stackpilot.test";
+        var (auth, orgId) = await RegisterAndCreateOrg(email);
+
+        _client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", auth);
+        _client.DefaultRequestHeaders.Remove("X-Organization-Id");
+        _client.DefaultRequestHeaders.Add("X-Organization-Id", orgId.ToString());
+
+        var wsBody = await (await _client.GetAsync($"/api/v1/organizations/{orgId}/workspaces")).Content.ReadFromJsonAsync<ApiResponse<List<WorkspaceDto>>>();
+        var workspaceId = wsBody!.Data![0].Id;
+        _client.DefaultRequestHeaders.Remove("X-Workspace-Id");
+        _client.DefaultRequestHeaders.Add("X-Workspace-Id", workspaceId.ToString());
+
+        var ticketResponse = await _client.PostAsJsonAsync($"/api/v1/workspaces/{workspaceId}/tickets", new
+        {
+            title = "Release test ticket",
+            ticketType = "Enhancement",
+            priority = "Medium"
+        });
+        var ticketId = (await ticketResponse.Content.ReadFromJsonAsync<ApiResponse<TicketDto>>())!.Data!.Id;
+
+        var scheduleResponse = await _client.PostAsJsonAsync($"/api/v1/tickets/{ticketId}/schedule-release", new
+        {
+            scheduledAt = DateTime.UtcNow.AddDays(3),
+            releaseWindow = "Weekend maintenance",
+            rollbackPlan = "Revert commit"
+        });
+        Assert.Equal(HttpStatusCode.OK, scheduleResponse.StatusCode);
+
+        var listResponse = await _client.GetAsync($"/api/v1/workspaces/{workspaceId}/releases");
+        Assert.Equal(HttpStatusCode.OK, listResponse.StatusCode);
+        var listBody = await listResponse.Content.ReadFromJsonAsync<ApiResponse<List<ReleaseScheduleDetailDto>>>();
+        Assert.Contains(listBody!.Data!, r => r.TicketId == ticketId);
+    }
+
+    [Fact]
     public async Task CrossTenant_Access_Is_Denied()
     {
         var userA = await RegisterAndCreateOrg($"usera_{Guid.NewGuid():N}@stackpilot.test");

@@ -269,6 +269,17 @@ public class TicketService : ITicketService
         return new ReleaseScheduleDto(release.Id, release.TicketId, release.ScheduledAt, release.ReleaseWindow, release.Status.ToString());
     }
 
+    public async Task<List<ReleaseScheduleDetailDto>> GetScheduledReleasesAsync(Guid workspaceId, CancellationToken ct = default)
+    {
+        return await _db.ReleaseSchedules
+            .Where(r => r.Ticket.WorkspaceId == workspaceId)
+            .OrderBy(r => r.ScheduledAt)
+            .Select(r => new ReleaseScheduleDetailDto(
+                r.Id, r.TicketId, r.Ticket.TicketNumber, r.Ticket.Title, r.Ticket.Status.ToString(),
+                r.ScheduledAt, r.ReleaseWindow, r.Status.ToString()))
+            .ToListAsync(ct);
+    }
+
     private static TicketDto MapTicket(Ticket t) => new(
         t.Id, t.TicketNumber, t.Title, t.Description, t.TicketType.ToString(), t.Status.ToString(),
         t.Priority.ToString(), t.RequesterId, t.AssigneeId, t.RiskScore, t.ConfidenceScore, t.CreatedAt, t.UpdatedAt);

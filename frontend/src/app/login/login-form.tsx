@@ -81,22 +81,22 @@ export default function LoginForm() {
             {isRegister && (
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-sm text-zinc-400 mb-1 block">First Name</label>
-                  <Input value={firstName} onChange={(e) => setFirstName(e.target.value)} required />
+                  <label htmlFor="firstName" className="text-sm text-zinc-400 mb-1 block">First Name</label>
+                  <Input id="firstName" value={firstName} onChange={(e) => setFirstName(e.target.value)} required />
                 </div>
                 <div>
-                  <label className="text-sm text-zinc-400 mb-1 block">Last Name</label>
-                  <Input value={lastName} onChange={(e) => setLastName(e.target.value)} required />
+                  <label htmlFor="lastName" className="text-sm text-zinc-400 mb-1 block">Last Name</label>
+                  <Input id="lastName" value={lastName} onChange={(e) => setLastName(e.target.value)} required />
                 </div>
               </div>
             )}
             <div>
-              <label className="text-sm text-zinc-400 mb-1 block">Email</label>
-              <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+              <label htmlFor="email" className="text-sm text-zinc-400 mb-1 block">Email</label>
+              <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
             </div>
             <div>
-              <label className="text-sm text-zinc-400 mb-1 block">Password</label>
-              <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+              <label htmlFor="password" className="text-sm text-zinc-400 mb-1 block">Password</label>
+              <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete={isRegister ? "new-password" : "current-password"} />
             </div>
             {error && <p className="text-sm text-red-400">{error}</p>}
             <Button type="submit" className="w-full" disabled={loading}>

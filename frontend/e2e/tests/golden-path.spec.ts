@@ -8,6 +8,7 @@ test.describe("Golden path", () => {
     const password = "TestPassword123!";
 
     await page.goto("/login");
+    await expect(page.getByLabel("Email")).toBeVisible({ timeout: 15000 });
     await page.getByRole("button", { name: /need an account/i }).click();
     await page.getByLabel("First Name").fill("E2E");
     await page.getByLabel("Last Name").fill("User");
@@ -82,6 +83,7 @@ test.describe("Golden path", () => {
     expect(pendingRes.ok()).toBeTruthy();
 
     await page.goto("/login");
+    await expect(page.getByLabel("Email")).toBeVisible({ timeout: 15000 });
     await page.getByLabel("Email").fill(email);
     await page.getByLabel("Password").fill(password);
     await page.getByRole("button", { name: /sign in/i }).click();

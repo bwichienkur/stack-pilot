@@ -27,28 +27,33 @@ cd frontend && npm run dev
 - Log in with demo credentials
 - Show KPI cards: applications, connectors, open tickets, pending approvals
 
-### 2. Architecture Map (45s)
+### 2. Connectors (45s)
+- Navigate to **Connectors** — show four categories: Source code, Data, CI/CD, ITSM & work
+- Highlight 13 available integrations (GitHub, GitLab, Azure DevOps, Bitbucket, SQL Server, PostgreSQL, MySQL, MongoDB, GitHub Actions, Azure Pipelines, Jenkins, Jira, ServiceNow)
+- Explain ServiceNow/Jira sync into the ticket workflow
+
+### 3. Architecture Map (30s)
 - Navigate to **Architecture**
 - Highlight **Customer Portal** application node from seeded graph data
 
-### 3. Ticket Workflow (2 min)
+### 4. Ticket Workflow (2 min)
 - Open ticket **#1 — Add two-factor authentication**
 - **Requirements** tab: show AI-generated requirements with graph citations
 - **Impact** tab: impacted nodes from citation analysis
 - **Approvals** tab: approve from ticket detail or **Approval Queue**
 
-### 4. Implementation & CI (1 min)
+### 5. Implementation & CI (1 min)
 - After approval, generate implementation plan
 - Show **Builds** tab (explain PR linking via `feature/{ticketNumber}` branch naming)
 - **Deployments** page for build run history
 
-### 5. QA → UAT → Release (1 min)
+### 6. QA → UAT → Release (1 min)
 - Move ticket to test (or use QA queue with `DeployedToTest` status)
 - **QA Queue**: pass QA
 - **UAT Queue**: accept UAT
-- Schedule release from ticket detail
+- **Release Calendar** (`/releases`): show seeded release or schedule from ticket
 
-### 6. AI Copilot & Docs (30s)
+### 7. AI Copilot & Docs (30s)
 - Open command palette (`Cmd+K`)
 - **Documentation Hub**: generate AI documentation for seeded page
 
@@ -56,7 +61,7 @@ cd frontend && npm run dev
 
 - **Honest scope**: mock AI provider works offline; swap to OpenAI/Anthropic via env vars
 - **Security**: RBAC, tenant isolation, PostgreSQL RLS, audit trail
-- **Integrations**: GitHub, GitLab, Jira (bidirectional ticket sync), SQL Server, PostgreSQL
+- **Integrations**: 13 categorized connectors — source (GitHub, GitLab, Azure DevOps, Bitbucket), data (SQL Server, PostgreSQL, MySQL, MongoDB), CI/CD (GitHub Actions, Azure Pipelines, Jenkins), ITSM (Jira, ServiceNow)
 
 ## Reset Demo Data
 

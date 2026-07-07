@@ -13,6 +13,55 @@ Template for recruiting 3–5 design partners before general availability.
 
 StackPilot connects your code, databases, and CI/CD into a living knowledge graph. AI drafts requirements grounded in your actual architecture, routes them through configurable approval gates, and tracks changes from ticket to production—with full audit trails.
 
+---
+
+## Execution Checklist (first call → pilot week 1)
+
+Use this runbook for every design partner from first interest through week-one onboarding.
+
+### Before the call (15 min prep)
+
+- [ ] Start demo stack: `docker compose up -d`
+- [ ] Seed demo data: `DEMO_SEED=true dotnet run --project src/StackPilot.Api`
+- [ ] Start frontend: `cd frontend && npm run dev`
+- [ ] Rehearse [DEMO.md](../DEMO.md) 5-minute walkthrough once
+- [ ] Open tabs: Dashboard, ticket #1, Approval Queue, Release Calendar
+
+### On the discovery call (20–30 min)
+
+1. **Pain discovery** (10 min) — use questions below
+2. **Live demo** (10 min) — follow DEMO.md sections 1–5
+3. **Integration scoping** (5 min) — which connectors matter in week 1?
+4. **Pilot commitment** (5 min) — weekly 30-min sync, 8-week trial, feedback channel
+
+### After the call (same day)
+
+- [ ] Send follow-up email with demo recording link (if recorded) + [DEMO.md](../DEMO.md)
+- [ ] Provision partner org (or invite to shared pilot tenant)
+- [ ] Schedule week-1 connector setup session (60 min)
+- [ ] Add partner to feedback tracker (Notion/Linear/etc.)
+
+### Week 1 onboarding session (60 min agenda)
+
+| Time | Activity |
+|------|----------|
+| 0–10 min | Partner creates org, invites team, confirms nav modules visible |
+| 10–25 min | Connect GitHub repo + (optional) Jira or ServiceNow project |
+| 25–40 min | Create first real ticket → generate requirements → approval |
+| 40–50 min | Walk through QA/UAT queues and release calendar |
+| 50–60 min | Agree on success metrics and weekly sync time |
+
+### Demo credentials (shared sandbox only)
+
+| Field | Value |
+|-------|-------|
+| Email | `demo@stackpilot.dev` |
+| Password | `DemoPassword123!` |
+
+Use partner-specific accounts for real pilots — never share demo credentials for production data.
+
+---
+
 ## Outreach Email Template
 
 **Subject:** Early access: AI change intelligence for [Company] engineering
@@ -75,6 +124,7 @@ Best,
 
 ## Next Steps After Interest
 
-1. Send [DEMO.md](../DEMO.md) and schedule technical demo
-2. Sign lightweight pilot agreement (no fee, feedback commitment)
-3. Provision org + schedule connector setup session
+1. Run the **Execution Checklist** above
+2. Send [DEMO.md](../DEMO.md) and schedule technical demo
+3. Sign lightweight pilot agreement (no fee, feedback commitment)
+4. Provision org + schedule connector setup session
