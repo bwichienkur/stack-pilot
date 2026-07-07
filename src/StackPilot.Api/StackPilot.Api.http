@@ -1,0 +1,6 @@
+@StackPilot.Api_HostAddress = http://localhost:5042
+
+GET {{StackPilot.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
