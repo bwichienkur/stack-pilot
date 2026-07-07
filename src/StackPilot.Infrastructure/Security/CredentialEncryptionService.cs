@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
 using StackPilot.Application.Interfaces;
 
 namespace StackPilot.Infrastructure.Security;
@@ -9,9 +10,18 @@ public class CredentialEncryptionService : ICredentialEncryptionService
 {
     private readonly byte[] _masterKey;
 
-    public CredentialEncryptionService(IConfiguration configuration)
+    public CredentialEncryptionService(IConfiguration configuration, IHostEnvironment env)
     {
-        var key = configuration["StackPilot:EncryptionKey"] ?? "stackpilot-dev-key-change-in-production-32b";
+        var key = configuration["StackPilot:EncryptionKey"]
+            ?? Environment.GetEnvironmentVariable("STACKPILOT_ENCRYPTION_KEY");
+
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            if (env.IsProduction())
+                throw new InvalidOperationException("Encryption key must be configured via StackPilot:EncryptionKey or STACKPILOT_ENCRYPTION_KEY in production");
+            key = "stackpilot-dev-key-change-in-production-32b";
+        }
+
         _masterKey = SHA256.HashData(Encoding.UTF8.GetBytes(key));
     }
 

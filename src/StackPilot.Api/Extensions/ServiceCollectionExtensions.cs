@@ -45,7 +45,10 @@ public static class ServiceCollectionExtensions
 
     public static IServiceCollection AddStackPilotAuthentication(this IServiceCollection services, IConfiguration configuration)
     {
-        var jwtKey = configuration["Jwt:Key"] ?? "stackpilot-jwt-secret-key-min-32-chars-long!";
+        var jwtKey = configuration["Jwt:Key"] ?? Environment.GetEnvironmentVariable("STACKPILOT_JWT_KEY");
+        if (string.IsNullOrWhiteSpace(jwtKey))
+            jwtKey = "stackpilot-jwt-secret-key-min-32-chars-long!";
+
         var oidcEnabled = configuration.GetValue<bool>("Authentication:Oidc:Enabled");
 
         var authBuilder = services.AddAuthentication(options =>

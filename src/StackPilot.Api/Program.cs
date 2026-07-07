@@ -1,8 +1,9 @@
-using System.Text;
+using System.Threading.RateLimiting;
 using Hangfire;
 using Hangfire.PostgreSql;
 using Serilog;
 using StackPilot.Api;
+using StackPilot.Api.Authorization;
 using StackPilot.Api.Extensions;
 using StackPilot.Api.Middleware;
 using StackPilot.Infrastructure;
@@ -20,9 +21,24 @@ builder.Host.UseSerilog();
 
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddStackPilotAuthentication(builder.Configuration);
+builder.Services.AddStackPilotAuthorization();
 builder.Services.AddStackPilotOpenTelemetry(builder.Configuration);
 
-builder.Services.AddAuthorization();
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("auth", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1) }));
+    options.AddPolicy("ai", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            httpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+            ?? httpContext.Connection.RemoteIpAddress?.ToString()
+            ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions { PermitLimit = 30, Window = TimeSpan.FromMinutes(1) }));
+});
+
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
@@ -95,14 +111,21 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.UseGlobalExceptionHandling();
 app.UseSerilogRequestLogging();
 app.UseCors();
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseTenantContext();
 app.UseAuthorization();
 app.MapControllers();
 if (!app.Environment.IsEnvironment("Testing"))
-    app.MapHangfireDashboard("/hangfire");
+{
+    app.MapHangfireDashboard("/hangfire", new DashboardOptions
+    {
+        Authorization = [new HangfireAuthorizationFilter()]
+    });
+}
 
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", service = "StackPilot.Api", timestamp = DateTime.UtcNow }));
 

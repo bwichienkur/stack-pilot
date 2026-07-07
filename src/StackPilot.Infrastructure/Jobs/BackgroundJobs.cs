@@ -3,6 +3,7 @@ using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using StackPilot.Application.Common;
 using StackPilot.Application.Connectors;
 using StackPilot.Application.Interfaces;
 using StackPilot.Domain.Entities;
@@ -43,13 +44,18 @@ public class ConnectorSyncJob
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var registry = scope.ServiceProvider.GetRequiredService<IConnectorRegistry>();
         var encryption = scope.ServiceProvider.GetRequiredService<ICredentialEncryptionService>();
+        var jobs = scope.ServiceProvider.GetRequiredService<IBackgroundJobService>();
+        var tenant = scope.ServiceProvider.GetRequiredService<ITenantContext>();
 
         var instance = await db.ConnectorInstances
+            .IgnoreQueryFilters()
             .Include(c => c.Definition)
             .Include(c => c.Credentials)
             .FirstOrDefaultAsync(c => c.Id == connectorId, ct);
 
         if (instance is null) return;
+
+        tenant.SetOrganization(instance.OrganizationId);
 
         var history = new SyncHistory { ConnectorId = connectorId, Status = SyncStatus.Running, StartedAt = DateTime.UtcNow };
         db.SyncHistories.Add(history);
@@ -83,25 +89,26 @@ public class ConnectorSyncJob
             instance.Status = ConnectorStatus.Active;
             instance.HealthStatus = HealthStatus.Healthy;
 
-            if (result.Metadata?.TryGetValue("repositories", out var repos) == true && repos is string[] repoList)
+            var repoNames = ExtractRepositoryNames(result.Metadata);
+            foreach (var repo in repoNames)
             {
-                foreach (var repo in repoList)
-                {
-                    var existing = await db.GraphNodes.FirstOrDefaultAsync(n =>
-                        n.WorkspaceId == instance.WorkspaceId && n.NodeType == GraphNodeType.Repository && n.Name == repo, ct);
+                var existing = await db.GraphNodes.FirstOrDefaultAsync(n =>
+                    n.WorkspaceId == instance.WorkspaceId && n.NodeType == GraphNodeType.Repository && n.Name == repo, ct);
 
-                    if (existing is null)
+                if (existing is null)
+                {
+                    db.GraphNodes.Add(new GraphNode
                     {
-                        db.GraphNodes.Add(new GraphNode
-                        {
-                            OrganizationId = instance.OrganizationId,
-                            WorkspaceId = instance.WorkspaceId,
-                            NodeType = GraphNodeType.Repository,
-                            Name = repo,
-                            ExternalId = $"{instance.Definition.Type}:{repo}"
-                        });
-                    }
+                        OrganizationId = instance.OrganizationId,
+                        WorkspaceId = instance.WorkspaceId,
+                        NodeType = GraphNodeType.Repository,
+                        Name = repo,
+                        ExternalId = $"{instance.Definition.Type}:{repo}"
+                    });
                 }
+
+                if (instance.Definition.Type is "github_repository" or "gitlab_repository")
+                    jobs.EnqueueRepositoryScan(connectorId, repo);
             }
 
             await db.SaveChangesAsync(ct);
@@ -118,6 +125,22 @@ public class ConnectorSyncJob
             throw;
         }
     }
+
+    private static IEnumerable<string> ExtractRepositoryNames(Dictionary<string, object>? metadata)
+    {
+        if (metadata is null) yield break;
+
+        if (metadata.TryGetValue("repositories", out var repos) && repos is string[] githubRepos)
+        {
+            foreach (var repo in githubRepos) yield return repo;
+            yield break;
+        }
+
+        if (metadata.TryGetValue("projects", out var projects) && projects is string[] gitlabProjects)
+        {
+            foreach (var project in gitlabProjects) yield return project;
+        }
+    }
 }
 
 public class RepositoryScanJob
@@ -132,18 +155,34 @@ public class RepositoryScanJob
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var scanner = scope.ServiceProvider.GetRequiredService<IRepositoryScanner>();
         var encryption = scope.ServiceProvider.GetRequiredService<ICredentialEncryptionService>();
+        var tenant = scope.ServiceProvider.GetRequiredService<ITenantContext>();
+
+        var instance = await db.ConnectorInstances
+            .IgnoreQueryFilters()
+            .Include(c => c.Definition)
+            .Include(c => c.Credentials)
+            .FirstAsync(c => c.Id == connectorId, ct);
+
+        tenant.SetOrganization(instance.OrganizationId);
 
         var scan = await db.RepositoryScans
             .Where(s => s.ConnectorId == connectorId && s.RepositoryName == repositoryName && s.Status == ScanStatus.Pending)
             .OrderByDescending(s => s.CreatedAt)
             .FirstOrDefaultAsync(ct);
 
-        if (scan is null) return;
+        if (scan is null)
+        {
+            scan = new RepositoryScan
+            {
+                OrganizationId = instance.OrganizationId,
+                ConnectorId = connectorId,
+                RepositoryName = repositoryName,
+                Status = ScanStatus.Pending
+            };
+            db.RepositoryScans.Add(scan);
+            await db.SaveChangesAsync(ct);
+        }
 
-        var instance = await db.ConnectorInstances
-            .Include(c => c.Definition)
-            .Include(c => c.Credentials)
-            .FirstAsync(c => c.Id == connectorId, ct);
         scan.Status = ScanStatus.Running;
         scan.StartedAt = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
@@ -204,18 +243,34 @@ public class DatabaseScanJob
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var scanner = scope.ServiceProvider.GetRequiredService<IDatabaseScanner>();
         var encryption = scope.ServiceProvider.GetRequiredService<ICredentialEncryptionService>();
+        var tenant = scope.ServiceProvider.GetRequiredService<ITenantContext>();
+
+        var instance = await db.ConnectorInstances
+            .IgnoreQueryFilters()
+            .Include(c => c.Definition)
+            .Include(c => c.Credentials)
+            .FirstAsync(c => c.Id == connectorId, ct);
+
+        tenant.SetOrganization(instance.OrganizationId);
 
         var scan = await db.DatabaseScans
             .Where(s => s.ConnectorId == connectorId && s.DatabaseName == databaseName && s.Status == ScanStatus.Pending)
             .OrderByDescending(s => s.CreatedAt)
             .FirstOrDefaultAsync(ct);
 
-        if (scan is null) return;
+        if (scan is null)
+        {
+            scan = new DatabaseScan
+            {
+                OrganizationId = instance.OrganizationId,
+                ConnectorId = connectorId,
+                DatabaseName = databaseName,
+                Status = ScanStatus.Pending
+            };
+            db.DatabaseScans.Add(scan);
+            await db.SaveChangesAsync(ct);
+        }
 
-        var instance = await db.ConnectorInstances
-            .Include(c => c.Definition)
-            .Include(c => c.Credentials)
-            .FirstAsync(c => c.Id == connectorId, ct);
         scan.Status = ScanStatus.Running;
         scan.StartedAt = DateTime.UtcNow;
 
@@ -244,16 +299,28 @@ public class DatabaseScanJob
         };
         db.GraphNodes.Add(dbNode);
 
+        GraphNode? previousTableNode = null;
         foreach (var table in result.Tables)
         {
-            db.GraphNodes.Add(new GraphNode
+            var tableNode = new GraphNode
             {
                 OrganizationId = instance.OrganizationId,
                 WorkspaceId = instance.WorkspaceId,
                 NodeType = GraphNodeType.Table,
                 Name = $"{table.Schema}.{table.Name}",
                 MetadataJson = JsonSerializer.Serialize(new { table.Columns.Count, table.RowCount })
+            };
+            db.GraphNodes.Add(tableNode);
+
+            db.GraphEdges.Add(new GraphEdge
+            {
+                OrganizationId = instance.OrganizationId,
+                SourceNodeId = dbNode.Id,
+                TargetNodeId = tableNode.Id,
+                EdgeType = GraphEdgeType.BelongsTo
             });
+
+            previousTableNode = tableNode;
         }
 
         await db.SaveChangesAsync(ct);
@@ -269,7 +336,15 @@ public class GenerateRequirementsJob
     public async Task ExecuteAsync(Guid ticketId, CancellationToken ct)
     {
         using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var aiService = scope.ServiceProvider.GetRequiredService<IAiService>();
+        var tenant = scope.ServiceProvider.GetRequiredService<ITenantContext>();
+
+        var ticket = await db.Tickets.IgnoreQueryFilters().FirstOrDefaultAsync(t => t.Id == ticketId, ct);
+        if (ticket is not null)
+            tenant.SetOrganization(ticket.OrganizationId);
+
         await aiService.GenerateRequirementsAsync(ticketId, ct);
     }
 }
+

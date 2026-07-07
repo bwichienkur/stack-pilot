@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Tokens;
 using StackPilot.Application.Common;
 using StackPilot.Application.DTOs;
@@ -18,30 +19,17 @@ public class AuthService : IAuthService
 {
     private readonly AppDbContext _db;
     private readonly IConfiguration _config;
+    private readonly IHostEnvironment _env;
 
-    public AuthService(AppDbContext db, IConfiguration config)
+    public AuthService(AppDbContext db, IConfiguration configuration, IHostEnvironment env)
     {
         _db = db;
-        _config = config;
+        _config = configuration;
+        _env = env;
     }
 
-    public async Task<AuthResponse> RegisterAsync(RegisterRequest request, CancellationToken ct = default)
-    {
-        if (await _db.Users.AnyAsync(u => u.Email == request.Email, ct))
-            throw new InvalidOperationException("Email already registered");
-
-        var user = new ApplicationUser
-        {
-            Email = request.Email.ToLowerInvariant(),
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password, workFactor: 12),
-            FirstName = request.FirstName,
-            LastName = request.LastName
-        };
-
-        _db.Users.Add(user);
-        await _db.SaveChangesAsync(ct);
-        return CreateAuthResponse(user);
-    }
+    public Task<AuthResponse> RegisterAsync(RegisterRequest request, CancellationToken ct = default) =>
+        RegisterUserAsync(request, ct);
 
     public async Task<AuthResponse> LoginAsync(LoginRequest request, CancellationToken ct = default)
     {
@@ -56,7 +44,7 @@ public class AuthService : IAuthService
 
         user.LastLoginAt = DateTime.UtcNow;
         await _db.SaveChangesAsync(ct);
-        return CreateAuthResponse(user);
+        return await CreateAuthResponseAsync(user, ct);
     }
 
     public async Task<UserDto?> GetCurrentUserAsync(Guid userId, CancellationToken ct = default)
@@ -99,27 +87,73 @@ public class AuthService : IAuthService
 
         user.LastLoginAt = DateTime.UtcNow;
         await _db.SaveChangesAsync(ct);
-        return CreateAuthResponse(user);
+        return await CreateAuthResponseAsync(user, ct);
     }
 
-    private AuthResponse CreateAuthResponse(ApplicationUser user)
+    public async Task<AuthResponse> RefreshSessionAsync(Guid userId, CancellationToken ct = default)
     {
-        var token = GenerateJwt(user);
+        var user = await _db.Users.FindAsync([userId], ct)
+            ?? throw new UnauthorizedAccessException("User not found");
+        return await CreateAuthResponseAsync(user, ct);
+    }
+
+    private async Task<AuthResponse> RegisterUserAsync(RegisterRequest request, CancellationToken ct)
+    {
+        if (await _db.Users.AnyAsync(u => u.Email == request.Email, ct))
+            throw new InvalidOperationException("Email already registered");
+
+        var user = new ApplicationUser
+        {
+            Email = request.Email.ToLowerInvariant(),
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password, workFactor: 12),
+            FirstName = request.FirstName,
+            LastName = request.LastName
+        };
+
+        _db.Users.Add(user);
+        await _db.SaveChangesAsync(ct);
+        return await CreateAuthResponseAsync(user, ct);
+    }
+
+    private async Task<AuthResponse> CreateAuthResponseAsync(ApplicationUser user, CancellationToken ct)
+    {
+        var token = await GenerateJwtAsync(user, ct);
         var refresh = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
         return new AuthResponse(token, refresh, MapUser(user));
     }
 
-    private string GenerateJwt(ApplicationUser user)
+    private async Task<string> GenerateJwtAsync(ApplicationUser user, CancellationToken ct)
     {
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(
-            _config["Jwt:Key"] ?? "stackpilot-jwt-secret-key-min-32-chars-long!"));
+        var jwtKey = GetJwtKey();
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey));
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-        var claims = new[]
+
+        var claims = new List<Claim>
         {
-            new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-            new Claim(ClaimTypes.Email, user.Email),
-            new Claim("name", user.FullName)
+            new(ClaimTypes.NameIdentifier, user.Id.ToString()),
+            new(ClaimTypes.Email, user.Email),
+            new("name", user.FullName)
         };
+
+        var memberships = await _db.OrganizationMembers
+            .AsNoTracking()
+            .Include(m => m.Role)
+                .ThenInclude(r => r.RolePermissions)
+                .ThenInclude(rp => rp.Permission)
+            .Where(m => m.UserId == user.Id)
+            .ToListAsync(ct);
+
+        foreach (var membership in memberships)
+        {
+            var orgId = membership.OrganizationId.ToString();
+            claims.Add(new Claim(StackPilotClaimTypes.Organization, orgId));
+
+            if (membership.Role.SystemRoleType is SystemRole roleType)
+                claims.Add(new Claim(StackPilotClaimTypes.OrgRole, $"{orgId}:{roleType}"));
+
+            foreach (var rp in membership.Role.RolePermissions)
+                claims.Add(new Claim(StackPilotClaimTypes.OrgPermission, $"{orgId}:{rp.Permission.Code}"));
+        }
 
         var token = new JwtSecurityToken(
             issuer: _config["Jwt:Issuer"] ?? "StackPilot",
@@ -129,6 +163,18 @@ public class AuthService : IAuthService
             signingCredentials: creds);
 
         return new JwtSecurityTokenHandler().WriteToken(token);
+    }
+
+    private string GetJwtKey()
+    {
+        var key = _config["Jwt:Key"] ?? Environment.GetEnvironmentVariable("STACKPILOT_JWT_KEY");
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            if (_env.IsProduction())
+                throw new InvalidOperationException("JWT key must be configured via Jwt:Key or STACKPILOT_JWT_KEY in production");
+            key = "stackpilot-jwt-secret-key-min-32-chars-long!";
+        }
+        return key;
     }
 
     private static UserDto MapUser(ApplicationUser u) =>
@@ -180,8 +226,12 @@ public class OrganizationService : IOrganizationService
             .ToListAsync(ct);
     }
 
-    public async Task<OrganizationDto?> GetByIdAsync(Guid id, CancellationToken ct = default)
+    public async Task<OrganizationDto?> GetByIdAsync(Guid id, Guid userId, CancellationToken ct = default)
     {
+        var isMember = await _db.OrganizationMembers
+            .AnyAsync(m => m.OrganizationId == id && m.UserId == userId, ct);
+        if (!isMember) return null;
+
         var org = await _db.Organizations.FindAsync([id], ct);
         return org is null ? null : new OrganizationDto(org.Id, org.Name, org.Slug, org.Plan.ToString(), org.IsActive);
     }

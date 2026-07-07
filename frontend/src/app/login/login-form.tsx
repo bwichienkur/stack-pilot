@@ -8,11 +8,11 @@ import { useAuth } from "@/lib/auth-context";
 import { api, API_BASE } from "@/lib/utils";
 
 export default function LoginForm() {
-  const [email, setEmail] = useState("admin@stackpilot.io");
-  const [password, setPassword] = useState("StackPilot123!");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [isRegister, setIsRegister] = useState(false);
-  const [firstName, setFirstName] = useState("Admin");
-  const [lastName, setLastName] = useState("User");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [ssoProviders, setSsoProviders] = useState<{ type: string; name: string; loginUrl: string }[]>([]);
@@ -21,10 +21,19 @@ export default function LoginForm() {
   const searchParams = useSearchParams();
 
   useEffect(() => {
-    const token = searchParams.get("token");
-    if (token) {
-      api<{ id: string; email: string; firstName?: string; lastName?: string }>("/auth/me", {}, token)
-        .then((user) => { setAuth(token, user); router.push("/"); })
+    const hashToken = typeof window !== "undefined"
+      ? new URLSearchParams(window.location.hash.replace(/^#/, "")).get("access_token")
+      : null;
+    const queryToken = searchParams.get("token");
+    const ssoToken = hashToken || queryToken;
+
+    if (ssoToken) {
+      api<{ id: string; email: string; firstName?: string; lastName?: string }>("/auth/me", {}, ssoToken)
+        .then((user) => {
+          setAuth(ssoToken, user);
+          window.history.replaceState(null, "", "/login");
+          router.push("/");
+        })
         .catch(() => setError("SSO login failed"));
     }
 

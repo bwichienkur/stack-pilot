@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, GitBranch, Database, Network, FileText, Lightbulb,
   Ticket, CheckCircle, FlaskConical, Rocket, ScrollText, Settings,
-  Plug, Bot, ChevronLeft, ChevronRight, LogOut, Command
+  Plug, Bot, ChevronLeft, ChevronRight, LogOut
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
@@ -100,10 +100,7 @@ export function Sidebar() {
 export function TopBar() {
   return (
     <header className="h-16 border-b border-zinc-800 bg-zinc-950/80 backdrop-blur-sm flex items-center justify-between px-6">
-      <div className="flex items-center gap-2 text-sm text-zinc-500">
-        <Command className="h-4 w-4" />
-        <span>Press <kbd className="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 text-xs">⌘K</kbd> for commands</span>
-      </div>
+      <div className="text-sm text-zinc-500">StackPilot Workspace</div>
       <div className="flex items-center gap-3">
         <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
         <span className="text-xs text-zinc-400">All systems operational</span>

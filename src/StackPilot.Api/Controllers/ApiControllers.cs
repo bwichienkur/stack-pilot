@@ -1,6 +1,8 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
+using StackPilot.Api.Authorization;
 using StackPilot.Application.Common;
 using StackPilot.Application.DTOs;
 using StackPilot.Application.Interfaces;
@@ -15,23 +17,20 @@ public class AuthController : ControllerBase
 
     public AuthController(IAuthService auth) => _auth = auth;
 
+    private Guid UserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+
     [HttpPost("register")]
     [AllowAnonymous]
+    [EnableRateLimiting("auth")]
     public async Task<ActionResult<ApiResponse<AuthResponse>>> Register([FromBody] RegisterRequest request, CancellationToken ct)
     {
-        try
-        {
-            var result = await _auth.RegisterAsync(request, ct);
-            return Ok(ApiResponse<AuthResponse>.Ok(result));
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(ApiResponse<AuthResponse>.Fail(new ApiError { Code = "VALIDATION_ERROR", Message = ex.Message }));
-        }
+        var result = await _auth.RegisterAsync(request, ct);
+        return Ok(ApiResponse<AuthResponse>.Ok(result));
     }
 
     [HttpPost("login")]
     [AllowAnonymous]
+    [EnableRateLimiting("auth")]
     public async Task<ActionResult<ApiResponse<AuthResponse>>> Login([FromBody] LoginRequest request, CancellationToken ct)
     {
         try
@@ -49,10 +48,14 @@ public class AuthController : ControllerBase
     [Authorize]
     public async Task<ActionResult<ApiResponse<UserDto>>> Me(CancellationToken ct)
     {
-        var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-        var user = await _auth.GetCurrentUserAsync(userId, ct);
+        var user = await _auth.GetCurrentUserAsync(UserId, ct);
         return user is null ? NotFound() : Ok(ApiResponse<UserDto>.Ok(user));
     }
+
+    [HttpPost("refresh-session")]
+    [Authorize]
+    public async Task<ActionResult<ApiResponse<AuthResponse>>> RefreshSession(CancellationToken ct) =>
+        Ok(ApiResponse<AuthResponse>.Ok(await _auth.RefreshSessionAsync(UserId, ct)));
 }
 
 [ApiController]
@@ -61,8 +64,13 @@ public class AuthController : ControllerBase
 public class OrganizationsController : ControllerBase
 {
     private readonly IOrganizationService _orgs;
+    private readonly IAuthService _auth;
 
-    public OrganizationsController(IOrganizationService orgs) => _orgs = orgs;
+    public OrganizationsController(IOrganizationService orgs, IAuthService auth)
+    {
+        _orgs = orgs;
+        _auth = auth;
+    }
 
     private Guid UserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
@@ -71,16 +79,18 @@ public class OrganizationsController : ControllerBase
         Ok(ApiResponse<List<OrganizationDto>>.Ok(await _orgs.GetUserOrganizationsAsync(UserId, ct)));
 
     [HttpPost]
-    public async Task<ActionResult<ApiResponse<OrganizationDto>>> Create([FromBody] CreateOrganizationRequest request, CancellationToken ct)
+    public async Task<ActionResult<ApiResponse<OrganizationCreatedDto>>> Create([FromBody] CreateOrganizationRequest request, CancellationToken ct)
     {
         var org = await _orgs.CreateAsync(request, UserId, ct);
-        return CreatedAtAction(nameof(Get), new { id = org.Id }, ApiResponse<OrganizationDto>.Ok(org));
+        var session = await _auth.RefreshSessionAsync(UserId, ct);
+        return CreatedAtAction(nameof(Get), new { id = org.Id },
+            ApiResponse<OrganizationCreatedDto>.Ok(new OrganizationCreatedDto(org, session.AccessToken)));
     }
 
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<ApiResponse<OrganizationDto>>> Get(Guid id, CancellationToken ct)
     {
-        var org = await _orgs.GetByIdAsync(id, ct);
+        var org = await _orgs.GetByIdAsync(id, UserId, ct);
         return org is null ? NotFound() : Ok(ApiResponse<OrganizationDto>.Ok(org));
     }
 
@@ -89,6 +99,7 @@ public class OrganizationsController : ControllerBase
         Ok(ApiResponse<List<WorkspaceDto>>.Ok(await _orgs.GetWorkspacesAsync(id, ct)));
 
     [HttpPost("{id:guid}/workspaces")]
+    [RequirePermission(Permissions.OrgManage)]
     public async Task<ActionResult<ApiResponse<WorkspaceDto>>> CreateWorkspace(Guid id, [FromBody] CreateWorkspaceRequest request, CancellationToken ct)
     {
         var ws = await _orgs.CreateWorkspaceAsync(id, request, ct);
@@ -110,10 +121,12 @@ public class ConnectorsController : ControllerBase
         Ok(ApiResponse<List<ConnectorDefinitionDto>>.Ok(await _connectors.GetDefinitionsAsync(ct)));
 
     [HttpGet("workspaces/{workspaceId:guid}/connectors")]
+    [RequirePermission(Permissions.ConnectorsRead)]
     public async Task<ActionResult<ApiResponse<List<ConnectorInstanceDto>>>> List(Guid workspaceId, CancellationToken ct) =>
         Ok(ApiResponse<List<ConnectorInstanceDto>>.Ok(await _connectors.GetByWorkspaceAsync(workspaceId, ct)));
 
     [HttpPost("workspaces/{workspaceId:guid}/connectors")]
+    [RequirePermission(Permissions.ConnectorsManage)]
     public async Task<ActionResult<ApiResponse<ConnectorInstanceDto>>> Create(Guid workspaceId, [FromBody] CreateConnectorRequest request, CancellationToken ct)
     {
         var connector = await _connectors.CreateAsync(workspaceId, request, ct);
@@ -121,14 +134,17 @@ public class ConnectorsController : ControllerBase
     }
 
     [HttpPost("connectors/{id:guid}/test")]
+    [RequirePermission(Permissions.ConnectorsManage)]
     public async Task<ActionResult<ApiResponse<bool>>> Test(Guid id, CancellationToken ct) =>
         Ok(ApiResponse<bool>.Ok(await _connectors.TestConnectionAsync(id, ct)));
 
     [HttpPost("connectors/{id:guid}/sync")]
+    [RequirePermission(Permissions.ConnectorsManage)]
     public async Task<ActionResult<ApiResponse<SyncHistoryDto>>> Sync(Guid id, CancellationToken ct) =>
         Ok(ApiResponse<SyncHistoryDto>.Ok(await _connectors.TriggerSyncAsync(id, ct)));
 
     [HttpGet("connectors/{id:guid}/sync-history")]
+    [RequirePermission(Permissions.ConnectorsRead)]
     public async Task<ActionResult<ApiResponse<List<SyncHistoryDto>>>> SyncHistory(Guid id, CancellationToken ct) =>
         Ok(ApiResponse<List<SyncHistoryDto>>.Ok(await _connectors.GetSyncHistoryAsync(id, ct)));
 }
@@ -150,6 +166,7 @@ public class TicketsController : ControllerBase
     private Guid UserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
     [HttpGet("workspaces/{workspaceId:guid}/tickets")]
+    [RequirePermission(Permissions.TicketsRead)]
     public async Task<ActionResult<ApiResponse<PagedResult<TicketDto>>>> List(Guid workspaceId, [FromQuery] PagedRequest request, CancellationToken ct)
     {
         var result = await _tickets.GetByWorkspaceAsync(workspaceId, request, ct);
@@ -157,6 +174,7 @@ public class TicketsController : ControllerBase
     }
 
     [HttpPost("workspaces/{workspaceId:guid}/tickets")]
+    [RequirePermission(Permissions.TicketsCreate)]
     public async Task<ActionResult<ApiResponse<TicketDto>>> Create(Guid workspaceId, [FromBody] CreateTicketRequest request, CancellationToken ct)
     {
         var ticket = await _tickets.CreateAsync(workspaceId, request, UserId, ct);
@@ -164,6 +182,7 @@ public class TicketsController : ControllerBase
     }
 
     [HttpGet("tickets/{id:guid}")]
+    [RequirePermission(Permissions.TicketsRead)]
     public async Task<ActionResult<ApiResponse<TicketDetailDto>>> Get(Guid id, CancellationToken ct)
     {
         var ticket = await _tickets.GetByIdAsync(id, ct);
@@ -171,6 +190,7 @@ public class TicketsController : ControllerBase
     }
 
     [HttpPatch("tickets/{id:guid}")]
+    [RequirePermission(Permissions.TicketsManage)]
     public async Task<ActionResult<ApiResponse<TicketDto>>> Update(Guid id, [FromBody] UpdateTicketRequest request, CancellationToken ct)
     {
         var ticket = await _tickets.UpdateAsync(id, request, ct);
@@ -178,30 +198,39 @@ public class TicketsController : ControllerBase
     }
 
     [HttpPost("tickets/{id:guid}/comments")]
+    [RequirePermission(Permissions.TicketsManage)]
     public async Task<ActionResult<ApiResponse<TicketCommentDto>>> Comment(Guid id, [FromBody] AddCommentRequest request, CancellationToken ct) =>
         Ok(ApiResponse<TicketCommentDto>.Ok(await _tickets.AddCommentAsync(id, request, UserId, ct)));
 
     [HttpPost("tickets/{id:guid}/generate-requirements")]
+    [RequirePermission(Permissions.AiUse)]
+    [EnableRateLimiting("ai")]
     public async Task<ActionResult<ApiResponse<AiRequirementsResult>>> GenerateRequirements(Guid id, CancellationToken ct) =>
         Ok(ApiResponse<AiRequirementsResult>.Ok(await _ai.GenerateRequirementsAsync(id, ct)));
 
     [HttpPost("tickets/{id:guid}/generate-plan")]
+    [RequirePermission(Permissions.AiUse)]
+    [EnableRateLimiting("ai")]
     public async Task<ActionResult<ApiResponse<string>>> GeneratePlan(Guid id, CancellationToken ct) =>
         Ok(ApiResponse<string>.Ok(await _ai.GenerateImplementationPlanAsync(id, ct)));
 
     [HttpPost("tickets/{id:guid}/approvals")]
+    [RequirePermission(Permissions.TicketsApproveTechnical)]
     public async Task<ActionResult<ApiResponse<ApprovalDto>>> Approve(Guid id, [FromBody] SubmitApprovalRequest request, CancellationToken ct) =>
         Ok(ApiResponse<ApprovalDto>.Ok(await _tickets.SubmitApprovalAsync(id, request, UserId, ct)));
 
     [HttpPost("tickets/{id:guid}/qa")]
+    [RequirePermission(Permissions.TicketsQa)]
     public async Task<ActionResult<ApiResponse<QaEvidenceDto>>> Qa(Guid id, [FromBody] SubmitQaRequest request, CancellationToken ct) =>
         Ok(ApiResponse<QaEvidenceDto>.Ok(await _tickets.SubmitQaAsync(id, request, UserId, ct)));
 
     [HttpPost("tickets/{id:guid}/uat")]
+    [RequirePermission(Permissions.TicketsUat)]
     public async Task<ActionResult<ApiResponse<UatDecisionDto>>> Uat(Guid id, [FromBody] SubmitUatRequest request, CancellationToken ct) =>
         Ok(ApiResponse<UatDecisionDto>.Ok(await _tickets.SubmitUatAsync(id, request, UserId, ct)));
 
     [HttpPost("tickets/{id:guid}/schedule-release")]
+    [RequirePermission(Permissions.TicketsApproveRelease)]
     public async Task<ActionResult<ApiResponse<ReleaseScheduleDto>>> ScheduleRelease(Guid id, [FromBody] ScheduleReleaseRequest request, CancellationToken ct) =>
         Ok(ApiResponse<ReleaseScheduleDto>.Ok(await _tickets.ScheduleReleaseAsync(id, request, UserId, ct)));
 }
@@ -234,10 +263,12 @@ public class GraphController : ControllerBase
     private Guid UserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
     [HttpGet("workspaces/{workspaceId:guid}/dashboard")]
+    [RequirePermission(Permissions.DashboardRead)]
     public async Task<ActionResult<ApiResponse<DashboardStatsDto>>> Dashboard(Guid workspaceId, CancellationToken ct) =>
         Ok(ApiResponse<DashboardStatsDto>.Ok(await _dashboard.GetStatsAsync(workspaceId, ct)));
 
     [HttpGet("workspaces/{workspaceId:guid}/graph/nodes")]
+    [RequirePermission(Permissions.GraphRead)]
     public async Task<ActionResult<ApiResponse<PagedResult<GraphNodeDto>>>> Nodes(Guid workspaceId, [FromQuery] PagedRequest request, CancellationToken ct)
     {
         var result = await _graph.GetNodesAsync(workspaceId, request, ct);
@@ -245,26 +276,32 @@ public class GraphController : ControllerBase
     }
 
     [HttpGet("workspaces/{workspaceId:guid}/graph/edges")]
+    [RequirePermission(Permissions.GraphRead)]
     public async Task<ActionResult<ApiResponse<List<GraphEdgeDto>>>> Edges(Guid workspaceId, CancellationToken ct) =>
         Ok(ApiResponse<List<GraphEdgeDto>>.Ok(await _graph.GetEdgesAsync(workspaceId, ct)));
 
     [HttpPost("workspaces/{workspaceId:guid}/graph/search")]
+    [RequirePermission(Permissions.GraphRead)]
     public async Task<ActionResult<ApiResponse<List<GraphNodeDto>>>> Search(Guid workspaceId, [FromBody] GraphSearchRequest request, CancellationToken ct) =>
         Ok(ApiResponse<List<GraphNodeDto>>.Ok(await _graph.SearchAsync(workspaceId, request, ct)));
 
     [HttpPost("graph/nodes/{nodeId:guid}/impact")]
+    [RequirePermission(Permissions.GraphRead)]
     public async Task<ActionResult<ApiResponse<ImpactAnalysisDto>>> Impact(Guid nodeId, CancellationToken ct) =>
         Ok(ApiResponse<ImpactAnalysisDto>.Ok(await _graph.AnalyzeImpactAsync(nodeId, ct)));
 
     [HttpGet("workspaces/{workspaceId:guid}/repositories")]
+    [RequirePermission(Permissions.GraphRead)]
     public async Task<ActionResult<ApiResponse<List<RepositoryScanDto>>>> Repositories(Guid workspaceId, CancellationToken ct) =>
         Ok(ApiResponse<List<RepositoryScanDto>>.Ok(await _intelligence.GetRepositoryScansAsync(workspaceId, ct)));
 
     [HttpGet("workspaces/{workspaceId:guid}/databases")]
+    [RequirePermission(Permissions.GraphRead)]
     public async Task<ActionResult<ApiResponse<List<DatabaseScanDto>>>> Databases(Guid workspaceId, CancellationToken ct) =>
         Ok(ApiResponse<List<DatabaseScanDto>>.Ok(await _intelligence.GetDatabaseScansAsync(workspaceId, ct)));
 
     [HttpGet("workspaces/{workspaceId:guid}/recommendations")]
+    [RequirePermission(Permissions.RecommendationsRead)]
     public async Task<ActionResult<ApiResponse<PagedResult<RecommendationDto>>>> Recommendations(Guid workspaceId, [FromQuery] PagedRequest request, CancellationToken ct)
     {
         var result = await _recommendations.GetByWorkspaceAsync(workspaceId, request, ct);
@@ -272,6 +309,7 @@ public class GraphController : ControllerBase
     }
 
     [HttpGet("workspaces/{workspaceId:guid}/docs")]
+    [RequirePermission(Permissions.DocsRead)]
     public async Task<ActionResult<ApiResponse<PagedResult<DocumentationPageDto>>>> Docs(Guid workspaceId, [FromQuery] PagedRequest request, CancellationToken ct)
     {
         var result = await _docs.GetByWorkspaceAsync(workspaceId, request, ct);
@@ -279,10 +317,13 @@ public class GraphController : ControllerBase
     }
 
     [HttpPost("workspaces/{workspaceId:guid}/ai/chat")]
+    [RequirePermission(Permissions.AiUse)]
+    [EnableRateLimiting("ai")]
     public async Task<ActionResult<ApiResponse<AiChatResponse>>> Chat(Guid workspaceId, [FromBody] AiChatRequest request, CancellationToken ct) =>
         Ok(ApiResponse<AiChatResponse>.Ok(await _ai.ChatAsync(workspaceId, request, UserId, ct)));
 
     [HttpGet("organizations/{orgId:guid}/audit-logs")]
+    [RequirePermission(Permissions.AuditRead)]
     public async Task<ActionResult<ApiResponse<PagedResult<AuditLogDto>>>> AuditLogs(Guid orgId, [FromQuery] PagedRequest request, CancellationToken ct)
     {
         var result = await _audit.GetLogsAsync(orgId, request, ct);

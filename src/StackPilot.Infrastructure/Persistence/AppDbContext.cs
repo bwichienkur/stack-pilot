@@ -121,17 +121,33 @@ public class AppDbContext : DbContext
 
     private void ApplyTenantFilters(ModelBuilder modelBuilder)
     {
-        modelBuilder.Entity<Workspace>().HasQueryFilter(e => _tenantContext.OrganizationId == null || e.OrganizationId == _tenantContext.OrganizationId);
-        modelBuilder.Entity<ConnectorInstance>().HasQueryFilter(e => _tenantContext.OrganizationId == null || e.OrganizationId == _tenantContext.OrganizationId);
-        modelBuilder.Entity<GraphNode>().HasQueryFilter(e => _tenantContext.OrganizationId == null || e.OrganizationId == _tenantContext.OrganizationId);
-        modelBuilder.Entity<GraphEdge>().HasQueryFilter(e => _tenantContext.OrganizationId == null || e.OrganizationId == _tenantContext.OrganizationId);
-        modelBuilder.Entity<Ticket>().HasQueryFilter(e => _tenantContext.OrganizationId == null || e.OrganizationId == _tenantContext.OrganizationId);
-        modelBuilder.Entity<Recommendation>().HasQueryFilter(e => _tenantContext.OrganizationId == null || e.OrganizationId == _tenantContext.OrganizationId);
-        modelBuilder.Entity<DocumentationPage>().HasQueryFilter(e => _tenantContext.OrganizationId == null || e.OrganizationId == _tenantContext.OrganizationId);
-        modelBuilder.Entity<RepositoryScan>().HasQueryFilter(e => _tenantContext.OrganizationId == null || e.OrganizationId == _tenantContext.OrganizationId);
-        modelBuilder.Entity<DatabaseScan>().HasQueryFilter(e => _tenantContext.OrganizationId == null || e.OrganizationId == _tenantContext.OrganizationId);
-        modelBuilder.Entity<AiAction>().HasQueryFilter(e => _tenantContext.OrganizationId == null || e.OrganizationId == _tenantContext.OrganizationId);
-        modelBuilder.Entity<AuditLog>().HasQueryFilter(e => _tenantContext.OrganizationId == null || e.OrganizationId == _tenantContext.OrganizationId);
+        void TenantFilter<T>(Microsoft.EntityFrameworkCore.Metadata.Builders.EntityTypeBuilder<T> entity)
+            where T : class, ITenantEntity
+        {
+            entity.HasQueryFilter(e =>
+                !_tenantContext.IsTenantFilterEnabled ||
+                (_tenantContext.OrganizationId != null && e.OrganizationId == _tenantContext.OrganizationId));
+        }
+
+        TenantFilter(modelBuilder.Entity<Workspace>());
+        TenantFilter(modelBuilder.Entity<ConnectorInstance>());
+        TenantFilter(modelBuilder.Entity<GraphNode>());
+        TenantFilter(modelBuilder.Entity<GraphEdge>());
+        TenantFilter(modelBuilder.Entity<Ticket>());
+        TenantFilter(modelBuilder.Entity<Recommendation>());
+        TenantFilter(modelBuilder.Entity<DocumentationPage>());
+        TenantFilter(modelBuilder.Entity<RepositoryScan>());
+        TenantFilter(modelBuilder.Entity<DatabaseScan>());
+        TenantFilter(modelBuilder.Entity<AiAction>());
+        TenantFilter(modelBuilder.Entity<AiConversation>());
+        TenantFilter(modelBuilder.Entity<Approval>());
+        TenantFilter(modelBuilder.Entity<BuildRun>());
+        TenantFilter(modelBuilder.Entity<Team>());
+        TenantFilter(modelBuilder.Entity<EnvironmentConfig>());
+
+        modelBuilder.Entity<AuditLog>().HasQueryFilter(e =>
+            !_tenantContext.IsTenantFilterEnabled ||
+            (_tenantContext.OrganizationId != null && e.OrganizationId == _tenantContext.OrganizationId));
     }
 
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)

@@ -5,9 +5,11 @@ public interface ITenantContext
     Guid? OrganizationId { get; }
     Guid? WorkspaceId { get; }
     Guid? UserId { get; }
+    bool IsTenantFilterEnabled { get; }
     void SetOrganization(Guid organizationId);
     void SetWorkspace(Guid workspaceId);
     void SetUser(Guid userId);
+    void DisableTenantFilter();
 }
 
 public class TenantContext : ITenantContext
@@ -15,10 +17,12 @@ public class TenantContext : ITenantContext
     public Guid? OrganizationId { get; private set; }
     public Guid? WorkspaceId { get; private set; }
     public Guid? UserId { get; private set; }
+    public bool IsTenantFilterEnabled { get; private set; } = true;
 
     public void SetOrganization(Guid organizationId) => OrganizationId = organizationId;
     public void SetWorkspace(Guid workspaceId) => WorkspaceId = workspaceId;
     public void SetUser(Guid userId) => UserId = userId;
+    public void DisableTenantFilter() => IsTenantFilterEnabled = false;
 }
 
 public class ApiResponse<T>

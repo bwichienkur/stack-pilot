@@ -15,21 +15,31 @@ interface AuthState {
 
 const AuthContext = createContext<AuthState | null>(null);
 
+function loadStoredAuth() {
+  if (typeof window === "undefined") return { token: null, user: null, orgId: null, workspaceId: null };
+  try {
+    const stored = localStorage.getItem("stackpilot_auth");
+    if (!stored) return { token: null, user: null, orgId: null, workspaceId: null };
+    const parsed = JSON.parse(stored);
+    return { token: parsed.token ?? null, user: parsed.user ?? null, orgId: parsed.orgId ?? null, workspaceId: parsed.workspaceId ?? null };
+  } catch {
+    return { token: null, user: null, orgId: null, workspaceId: null };
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [token, setToken] = useState<string | null>(null);
-  const [user, setUser] = useState<AuthState["user"]>(null);
-  const [orgId, setOrgId] = useState<string | null>(null);
-  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
+  const stored = loadStoredAuth();
+  const [token, setToken] = useState<string | null>(stored.token);
+  const [user, setUser] = useState<AuthState["user"]>(stored.user);
+  const [orgId, setOrgId] = useState<string | null>(stored.orgId);
+  const [workspaceId, setWorkspaceId] = useState<string | null>(stored.workspaceId);
 
   useEffect(() => {
-    const stored = localStorage.getItem("stackpilot_auth");
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      setToken(parsed.token);
-      setUser(parsed.user);
-      setOrgId(parsed.orgId);
-      setWorkspaceId(parsed.workspaceId);
-    }
+    const fresh = loadStoredAuth();
+    setToken(fresh.token);
+    setUser(fresh.user);
+    setOrgId(fresh.orgId);
+    setWorkspaceId(fresh.workspaceId);
   }, []);
 
   const persist = (data: Partial<AuthState>) => {

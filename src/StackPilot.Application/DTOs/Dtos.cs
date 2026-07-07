@@ -7,6 +7,7 @@ public record RefreshTokenRequest(string RefreshToken);
 
 public record UserDto(Guid Id, string Email, string? FirstName, string? LastName, string? AvatarUrl);
 public record OrganizationDto(Guid Id, string Name, string Slug, string Plan, bool IsActive);
+public record OrganizationCreatedDto(OrganizationDto Organization, string AccessToken);
 public record CreateOrganizationRequest(string Name, string Slug);
 public record WorkspaceDto(Guid Id, Guid OrganizationId, string Name, string Slug, string? Description, bool IsActive);
 public record CreateWorkspaceRequest(string Name, string Slug, string? Description);

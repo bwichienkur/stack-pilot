@@ -27,12 +27,22 @@ public class StackPilotWebApplicationFactory : WebApplicationFactory<Program>
             services.AddDbContext<AppDbContext>(options =>
                 options.UseInMemoryDatabase(_dbName));
 
+            var tenantDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(ITenantContext));
+            if (tenantDescriptor is not null) services.Remove(tenantDescriptor);
+
+            services.AddScoped<ITenantContext>(sp =>
+            {
+                var ctx = new TenantContext();
+                ctx.DisableTenantFilter();
+                return ctx;
+            });
+
             services.AddSingleton<IBackgroundJobService, NoOpBackgroundJobService>();
         });
     }
 }
 
-public class NoOpBackgroundJobService : StackPilot.Application.Interfaces.IBackgroundJobService
+public class NoOpBackgroundJobService : IBackgroundJobService
 {
     public string EnqueueConnectorSync(Guid connectorId) => Guid.NewGuid().ToString();
     public string EnqueueRepositoryScan(Guid connectorId, string repositoryName) => Guid.NewGuid().ToString();
@@ -101,15 +111,10 @@ public class AuthIntegrationTests : IClassFixture<StackPilotWebApplicationFactor
     public async Task CreateOrganization_And_Workspace_Succeeds()
     {
         var email = $"org_{Guid.NewGuid():N}@stackpilot.test";
-        var auth = await RegisterAndGetToken(email);
+        var (auth, orgId) = await RegisterAndCreateOrg(email);
+
         _client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", auth);
-
-        var orgResponse = await _client.PostAsJsonAsync("/api/v1/organizations", new { name = "Test Org", slug = $"test-{Guid.NewGuid():N}" });
-        Assert.Equal(HttpStatusCode.Created, orgResponse.StatusCode);
-
-        var orgBody = await orgResponse.Content.ReadFromJsonAsync<ApiResponse<OrganizationDto>>();
-        var orgId = orgBody!.Data!.Id;
-
+        _client.DefaultRequestHeaders.Remove("X-Organization-Id");
         _client.DefaultRequestHeaders.Add("X-Organization-Id", orgId.ToString());
 
         var wsResponse = await _client.PostAsJsonAsync($"/api/v1/organizations/{orgId}/workspaces", new { name = "Dev", slug = "dev" });
@@ -120,15 +125,16 @@ public class AuthIntegrationTests : IClassFixture<StackPilotWebApplicationFactor
     public async Task TicketWorkflow_Create_And_GenerateRequirements()
     {
         var email = $"ticket_{Guid.NewGuid():N}@stackpilot.test";
-        var auth = await RegisterAndGetToken(email);
-        _client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", auth);
+        var (auth, orgId) = await RegisterAndCreateOrg(email);
 
-        var orgId = await CreateOrgAndWorkspace();
+        _client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", auth);
+        _client.DefaultRequestHeaders.Remove("X-Organization-Id");
         _client.DefaultRequestHeaders.Add("X-Organization-Id", orgId.ToString());
 
         var wsResponse = await _client.GetAsync($"/api/v1/organizations/{orgId}/workspaces");
         var wsBody = await wsResponse.Content.ReadFromJsonAsync<ApiResponse<List<WorkspaceDto>>>();
         var workspaceId = wsBody!.Data![0].Id;
+        _client.DefaultRequestHeaders.Remove("X-Workspace-Id");
         _client.DefaultRequestHeaders.Add("X-Workspace-Id", workspaceId.ToString());
 
         var ticketResponse = await _client.PostAsJsonAsync($"/api/v1/workspaces/{workspaceId}/tickets", new
@@ -148,6 +154,20 @@ public class AuthIntegrationTests : IClassFixture<StackPilotWebApplicationFactor
         Assert.Equal(HttpStatusCode.OK, reqResponse.StatusCode);
     }
 
+    [Fact]
+    public async Task CrossTenant_Access_Is_Denied()
+    {
+        var userA = await RegisterAndCreateOrg($"usera_{Guid.NewGuid():N}@stackpilot.test");
+        var userB = await RegisterAndCreateOrg($"userb_{Guid.NewGuid():N}@stackpilot.test");
+
+        _client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", userA.Auth);
+        _client.DefaultRequestHeaders.Remove("X-Organization-Id");
+        _client.DefaultRequestHeaders.Add("X-Organization-Id", userB.OrgId.ToString());
+
+        var response = await _client.GetAsync($"/api/v1/organizations/{userB.OrgId}/workspaces");
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
     private async Task<string> RegisterAndGetToken(string email)
     {
         var response = await _client.PostAsJsonAsync("/api/v1/auth/register", new
@@ -161,13 +181,13 @@ public class AuthIntegrationTests : IClassFixture<StackPilotWebApplicationFactor
         return body!.Data!.AccessToken;
     }
 
-    private async Task<Guid> CreateOrgAndWorkspace()
+    private async Task<(string Auth, Guid OrgId)> RegisterAndCreateOrg(string email)
     {
-        var orgResponse = await _client.PostAsJsonAsync("/api/v1/organizations", new { name = "Test Org", slug = $"test-{Guid.NewGuid():N}" });
-        var orgBody = await orgResponse.Content.ReadFromJsonAsync<ApiResponse<OrganizationDto>>();
-        var orgId = orgBody!.Data!.Id;
+        var auth = await RegisterAndGetToken(email);
+        _client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", auth);
 
-        await _client.PostAsJsonAsync($"/api/v1/organizations/{orgId}/workspaces", new { name = "Default", slug = "default" });
-        return orgId;
+        var orgResponse = await _client.PostAsJsonAsync("/api/v1/organizations", new { name = "Test Org", slug = $"test-{Guid.NewGuid():N}" });
+        var orgBody = await orgResponse.Content.ReadFromJsonAsync<ApiResponse<OrganizationCreatedDto>>();
+        return (orgBody!.Data!.AccessToken, orgBody.Data.Organization.Id);
     }
 }

@@ -52,7 +52,7 @@ public class SsoController : ControllerBase
 
         var authResponse = await _auth.HandleSsoLoginAsync(email, givenName, familyName, sub, "oidc", ct);
         var frontendUrl = _config["Frontend:Url"] ?? "http://localhost:3000";
-        return Redirect($"{frontendUrl}/login?token={authResponse.AccessToken}");
+        return Redirect($"{frontendUrl}/login#access_token={Uri.EscapeDataString(authResponse.AccessToken)}");
     }
 
     [HttpGet("sso/providers")]

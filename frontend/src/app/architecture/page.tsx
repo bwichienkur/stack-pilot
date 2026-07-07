@@ -11,6 +11,7 @@ import { AppLayout } from "@/components/layout/sidebar";
 import { Card, Badge, Button } from "@/components/ui";
 import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/utils";
+import Link from "next/link";
 import { Filter, Maximize2 } from "lucide-react";
 
 const nodeColors: Record<string, string> = {
@@ -67,15 +68,6 @@ export default function ArchitecturePage() {
         data: { label: n.name, type: n.nodeType, risk: n.riskScore },
       }));
 
-      if (flowNodes.length === 0) {
-        flowNodes.push(
-          { id: "1", type: "custom", position: { x: 250, y: 100 }, data: { label: "Order API", type: "Application", risk: 3 } },
-          { id: "2", type: "custom", position: { x: 50, y: 250 }, data: { label: "order-service", type: "Repository" } },
-          { id: "3", type: "custom", position: { x: 450, y: 250 }, data: { label: "orders_db", type: "Database" } },
-          { id: "4", type: "custom", position: { x: 250, y: 400 }, data: { label: "orders", type: "Table" } },
-        );
-      }
-
       const flowEdges: Edge[] = (edgesData || []).map((e) => ({
         id: e.id,
         source: e.sourceNodeId,
@@ -85,14 +77,6 @@ export default function ArchitecturePage() {
         style: { stroke: "#6366f1" },
         markerEnd: { type: MarkerType.ArrowClosed, color: "#6366f1" },
       }));
-
-      if (flowEdges.length === 0 && flowNodes.length > 1) {
-        flowEdges.push(
-          { id: "e1-2", source: "1", target: "2", label: "owns", animated: true, style: { stroke: "#6366f1" }, markerEnd: { type: MarkerType.ArrowClosed, color: "#6366f1" } },
-          { id: "e1-3", source: "1", target: "3", label: "reads_from", animated: true, style: { stroke: "#06b6d4" }, markerEnd: { type: MarkerType.ArrowClosed, color: "#06b6d4" } },
-          { id: "e3-4", source: "3", target: "4", label: "contains", animated: true, style: { stroke: "#14b8a6" }, markerEnd: { type: MarkerType.ArrowClosed, color: "#14b8a6" } },
-        );
-      }
 
       setNodes(flowNodes);
       setEdges(flowEdges);
@@ -120,7 +104,13 @@ export default function ArchitecturePage() {
         </div>
 
         <div className="flex gap-4 h-full">
-          <Card className="flex-1 overflow-hidden">
+          <Card className="flex-1 overflow-hidden relative">
+            {nodes.length === 0 && (
+              <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-zinc-950/90">
+                <p className="text-zinc-400 mb-4">No architecture data yet. Connect and sync a repository to populate this map.</p>
+                <Link href="/connectors"><Button>Connect Repository</Button></Link>
+              </div>
+            )}
             <ReactFlow
               nodes={nodes}
               edges={edges}

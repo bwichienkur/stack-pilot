@@ -9,13 +9,14 @@ public interface IAuthService
     Task<AuthResponse> LoginAsync(LoginRequest request, CancellationToken ct = default);
     Task<UserDto?> GetCurrentUserAsync(Guid userId, CancellationToken ct = default);
     Task<AuthResponse> HandleSsoLoginAsync(string email, string? firstName, string? lastName, string externalId, string provider, CancellationToken ct = default);
+    Task<AuthResponse> RefreshSessionAsync(Guid userId, CancellationToken ct = default);
 }
 
 public interface IOrganizationService
 {
     Task<OrganizationDto> CreateAsync(CreateOrganizationRequest request, Guid userId, CancellationToken ct = default);
     Task<List<OrganizationDto>> GetUserOrganizationsAsync(Guid userId, CancellationToken ct = default);
-    Task<OrganizationDto?> GetByIdAsync(Guid id, CancellationToken ct = default);
+    Task<OrganizationDto?> GetByIdAsync(Guid id, Guid userId, CancellationToken ct = default);
     Task<WorkspaceDto> CreateWorkspaceAsync(Guid orgId, CreateWorkspaceRequest request, CancellationToken ct = default);
     Task<List<WorkspaceDto>> GetWorkspacesAsync(Guid orgId, CancellationToken ct = default);
 }

@@ -38,7 +38,7 @@ public static class DatabaseSeeder
         var roles = new Dictionary<SystemRole, string[]>
         {
             [SystemRole.PlatformSuperAdmin] = permissions,
-            [SystemRole.ClientAdmin] = ["org:manage", "users:manage", "connectors:manage", "connectors:read", "settings:manage", "audit:read", "dashboard:read", "tickets:approve:release"],
+            [SystemRole.ClientAdmin] = ["org:manage", "users:manage", "connectors:manage", "connectors:read", "settings:manage", "audit:read", "dashboard:read", "tickets:create", "tickets:read", "tickets:manage", "tickets:approve:technical", "tickets:approve:security", "tickets:approve:database", "tickets:approve:release", "tickets:qa", "tickets:uat", "graph:read", "graph:manage", "docs:read", "docs:manage", "recommendations:read", "recommendations:manage", "deployments:read", "deployments:manage", "ai:use"],
             [SystemRole.Architect] = ["graph:read", "graph:manage", "docs:read", "docs:manage", "tickets:read", "tickets:approve:technical", "recommendations:read", "recommendations:manage", "dashboard:read", "ai:use", "connectors:read"],
             [SystemRole.Developer] = ["graph:read", "docs:read", "tickets:create", "tickets:read", "tickets:manage", "connectors:read", "ai:use", "dashboard:read"],
             [SystemRole.Qa] = ["tickets:read", "tickets:qa", "dashboard:read"],

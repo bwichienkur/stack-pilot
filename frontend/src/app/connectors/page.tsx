@@ -20,6 +20,7 @@ export default function ConnectorsPage() {
   const [selectedDef, setSelectedDef] = useState("");
   const [connectorName, setConnectorName] = useState("");
   const [owner, setOwner] = useState("");
+  const [pat, setPat] = useState("");
 
   useEffect(() => {
     if (!token) { router.push("/login"); return; }
@@ -50,7 +51,7 @@ export default function ConnectorsPage() {
         name: connectorName,
         definitionId: selectedDef,
         configJson: JSON.stringify({ owner, repositories: "all" }),
-        credentials: { pat: "ghp_demo_token_for_development" }
+        credentials: { pat: pat || undefined }
       })
     }, token, orgId, workspaceId);
 
@@ -91,6 +92,7 @@ export default function ConnectorsPage() {
               </select>
               <Input placeholder="Connector name" value={connectorName} onChange={(e) => setConnectorName(e.target.value)} />
               <Input placeholder="Owner / Server" value={owner} onChange={(e) => setOwner(e.target.value)} />
+              <Input type="password" placeholder="Personal Access Token" value={pat} onChange={(e) => setPat(e.target.value)} />
               <div className="flex gap-2">
                 <Button onClick={addConnector}>Create</Button>
                 <Button variant="secondary" onClick={() => setShowAdd(false)}>Cancel</Button>
