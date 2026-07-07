@@ -53,6 +53,9 @@ public record UatDecisionDto(Guid Id, Guid ApproverId, string Decision, string? 
 public record SubmitUatRequest(string Decision, string? Comments);
 
 public record ReleaseScheduleDto(Guid Id, Guid TicketId, DateTime ScheduledAt, string? ReleaseWindow, string Status);
+public record ReleaseScheduleDetailDto(
+    Guid Id, Guid TicketId, int TicketNumber, string TicketTitle, string TicketStatus,
+    DateTime ScheduledAt, string? ReleaseWindow, string Status);
 public record ScheduleReleaseRequest(DateTime ScheduledAt, string? ReleaseWindow, string? RollbackPlan, string? ChecklistJson);
 
 public record RecommendationDto(Guid Id, string Type, string Summary, string RiskLevel, decimal? ConfidenceScore, string Status, DateTime CreatedAt);

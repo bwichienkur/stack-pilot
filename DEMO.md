@@ -46,7 +46,7 @@ cd frontend && npm run dev
 - Move ticket to test (or use QA queue with `DeployedToTest` status)
 - **QA Queue**: pass QA
 - **UAT Queue**: accept UAT
-- Schedule release from ticket detail
+- **Release Calendar** (`/releases`): show seeded release or schedule from ticket
 
 ### 6. AI Copilot & Docs (30s)
 - Open command palette (`Cmd+K`)
