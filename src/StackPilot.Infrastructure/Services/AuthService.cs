@@ -240,13 +240,20 @@ public class OrganizationService : IOrganizationService
     private readonly ITenantContext _tenant;
     private readonly IApprovalGateService _approvalGates;
     private readonly IPlanLimitService _planLimits;
+    private readonly IConfiguration _configuration;
 
-    public OrganizationService(AppDbContext db, ITenantContext tenant, IApprovalGateService approvalGates, IPlanLimitService planLimits)
+    public OrganizationService(
+        AppDbContext db,
+        ITenantContext tenant,
+        IApprovalGateService approvalGates,
+        IPlanLimitService planLimits,
+        IConfiguration configuration)
     {
         _db = db;
         _tenant = tenant;
         _approvalGates = approvalGates;
         _planLimits = planLimits;
+        _configuration = configuration;
     }
 
     public async Task<OrganizationDto> CreateAsync(CreateOrganizationRequest request, Guid userId, CancellationToken ct = default)
@@ -363,7 +370,14 @@ public class OrganizationService : IOrganizationService
             .ToListAsync(ct);
     }
 
-    public async Task<OrganizationInviteDto> CreateInviteAsync(Guid orgId, CreateInviteRequest request, Guid invitedByUserId, CancellationToken ct = default)
+    public async Task<List<RoleDto>> GetInvitableRolesAsync(CancellationToken ct = default) =>
+        await _db.Roles
+            .Where(r => r.IsSystem && r.SystemRoleType != SystemRole.PlatformSuperAdmin)
+            .OrderBy(r => r.Name)
+            .Select(r => new RoleDto(r.Id, r.Name, r.Description))
+            .ToListAsync(ct);
+
+    public async Task<OrganizationInviteCreatedDto> CreateInviteAsync(Guid orgId, CreateInviteRequest request, Guid invitedByUserId, CancellationToken ct = default)
     {
         await _planLimits.EnsureCanAddSeatAsync(orgId, ct);
 
@@ -375,15 +389,14 @@ public class OrganizationService : IOrganizationService
                 i.OrganizationId == orgId && i.Email == email && i.AcceptedAt == null && i.ExpiresAt > DateTime.UtcNow, ct))
             throw new InvalidOperationException("A pending invite already exists for this email");
 
-        var role = await _db.Roles.FindAsync([request.RoleId], ct)
-            ?? throw new KeyNotFoundException("Role not found");
+        var role = await ResolveInviteRoleAsync(request, ct);
 
         var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
         var invite = new OrganizationInvite
         {
             OrganizationId = orgId,
             Email = email,
-            RoleId = request.RoleId,
+            RoleId = role.Id,
             TokenHash = HashInviteToken(token),
             InvitedByUserId = invitedByUserId,
             ExpiresAt = DateTime.UtcNow.AddDays(7)
@@ -392,7 +405,27 @@ public class OrganizationService : IOrganizationService
         _db.OrganizationInvites.Add(invite);
         await _db.SaveChangesAsync(ct);
 
-        return new OrganizationInviteDto(invite.Id, invite.Email, role.Name, invite.ExpiresAt, invite.AcceptedAt, invite.CreatedAt);
+        var frontendUrl = (_configuration["Frontend:Url"] ?? "http://localhost:3000").TrimEnd('/');
+        var inviteUrl = $"{frontendUrl}/invite/accept?token={Uri.EscapeDataString(token)}";
+
+        return new OrganizationInviteCreatedDto(
+            invite.Id, invite.Email, role.Name, invite.ExpiresAt, invite.AcceptedAt, invite.CreatedAt, token, inviteUrl);
+    }
+
+    private async Task<Role> ResolveInviteRoleAsync(CreateInviteRequest request, CancellationToken ct)
+    {
+        if (request.RoleId is Guid roleId && roleId != Guid.Empty)
+        {
+            return await _db.Roles.FindAsync([roleId], ct)
+                ?? throw new KeyNotFoundException("Role not found");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.RoleName))
+            throw new ArgumentException("RoleId or RoleName is required");
+
+        var normalized = request.RoleName.Replace(" ", "", StringComparison.Ordinal);
+        return await _db.Roles.FirstOrDefaultAsync(r => r.Name == normalized || r.Name == request.RoleName, ct)
+            ?? throw new KeyNotFoundException("Role not found");
     }
 
     public async Task<List<OrganizationInviteDto>> GetInvitesAsync(Guid orgId, CancellationToken ct = default)

@@ -144,10 +144,15 @@ public class OrganizationsController : ControllerBase
     public async Task<ActionResult<ApiResponse<List<OrganizationMemberDto>>>> Members(Guid id, CancellationToken ct) =>
         Ok(ApiResponse<List<OrganizationMemberDto>>.Ok(await _orgs.GetMembersAsync(id, ct)));
 
+    [HttpGet("roles")]
+    [RequirePermission(Permissions.UsersManage)]
+    public async Task<ActionResult<ApiResponse<List<RoleDto>>>> InvitableRoles(CancellationToken ct) =>
+        Ok(ApiResponse<List<RoleDto>>.Ok(await _orgs.GetInvitableRolesAsync(ct)));
+
     [HttpPost("{id:guid}/invites")]
     [RequirePermission(Permissions.UsersManage)]
-    public async Task<ActionResult<ApiResponse<OrganizationInviteDto>>> CreateInvite(Guid id, [FromBody] CreateInviteRequest request, CancellationToken ct) =>
-        Ok(ApiResponse<OrganizationInviteDto>.Ok(await _orgs.CreateInviteAsync(id, request, UserId, ct)));
+    public async Task<ActionResult<ApiResponse<OrganizationInviteCreatedDto>>> CreateInvite(Guid id, [FromBody] CreateInviteRequest request, CancellationToken ct) =>
+        Ok(ApiResponse<OrganizationInviteCreatedDto>.Ok(await _orgs.CreateInviteAsync(id, request, UserId, ct)));
 
     [HttpGet("{id:guid}/invites")]
     [RequirePermission(Permissions.UsersManage)]
@@ -165,6 +170,22 @@ public class OrganizationsController : ControllerBase
     [HttpPost("invites/accept")]
     public async Task<ActionResult<ApiResponse<OrganizationDto>>> AcceptInvite([FromBody] AcceptInviteRequest request, CancellationToken ct) =>
         Ok(ApiResponse<OrganizationDto>.Ok(await _orgs.AcceptInviteAsync(request, UserId, ct)));
+
+    [HttpPost("{id:guid}/export")]
+    [RequirePermission(Permissions.OrgManage)]
+    public async Task<IActionResult> ExportData(Guid id, [FromServices] IComplianceService compliance, CancellationToken ct)
+    {
+        var json = await compliance.ExportOrganizationDataAsync(id, ct);
+        return File(System.Text.Encoding.UTF8.GetBytes(json), "application/json", $"stackpilot-export-{id}.json");
+    }
+
+    [HttpPost("{id:guid}/delete-data")]
+    [RequirePermission(Permissions.OrgManage)]
+    public async Task<IActionResult> DeleteOrganizationData(Guid id, [FromServices] IComplianceService compliance, CancellationToken ct)
+    {
+        await compliance.DeleteOrganizationDataAsync(id, ct);
+        return NoContent();
+    }
 
     [HttpPut("{id:guid}/members/role")]
     [RequirePermission(Permissions.UsersManage)]

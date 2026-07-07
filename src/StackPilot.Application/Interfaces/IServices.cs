@@ -24,8 +24,9 @@ public interface IOrganizationService
     Task<OrganizationSettingsDto> GetSettingsAsync(Guid orgId, CancellationToken ct = default);
     Task<OrganizationSettingsDto> UpdateSettingsAsync(Guid orgId, UpdateOrganizationSettingsRequest request, CancellationToken ct = default);
     Task<List<OrganizationMemberDto>> GetMembersAsync(Guid orgId, CancellationToken ct = default);
-    Task<OrganizationInviteDto> CreateInviteAsync(Guid orgId, CreateInviteRequest request, Guid invitedByUserId, CancellationToken ct = default);
+    Task<OrganizationInviteCreatedDto> CreateInviteAsync(Guid orgId, CreateInviteRequest request, Guid invitedByUserId, CancellationToken ct = default);
     Task<List<OrganizationInviteDto>> GetInvitesAsync(Guid orgId, CancellationToken ct = default);
+    Task<List<RoleDto>> GetInvitableRolesAsync(CancellationToken ct = default);
     Task RevokeInviteAsync(Guid orgId, Guid inviteId, CancellationToken ct = default);
     Task<OrganizationDto> AcceptInviteAsync(AcceptInviteRequest request, Guid userId, CancellationToken ct = default);
     Task<OrganizationMemberDto> UpdateMemberRoleAsync(Guid orgId, UpdateMemberRoleRequest request, CancellationToken ct = default);

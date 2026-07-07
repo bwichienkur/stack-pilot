@@ -15,7 +15,14 @@ export default function LoginForm() {
   const [lastName, setLastName] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [ssoProviders, setSsoProviders] = useState<{ type: string; name: string; loginUrl: string }[]>([]);
+  const [ssoProviders, setSsoProviders] = useState<{
+    type: string;
+    name: string;
+    loginUrl: string;
+    requiresProfessionalPlan?: boolean;
+    productionReady?: boolean;
+    devModeAvailable?: boolean;
+  }[]>([]);
   const { setAuth } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -37,10 +44,19 @@ export default function LoginForm() {
         .catch(() => setError("SSO login failed"));
     }
 
-    api<{ type: string; name: string; loginUrl: string }[]>("/auth/sso/providers")
+    api<{
+      type: string;
+      name: string;
+      loginUrl: string;
+      requiresProfessionalPlan?: boolean;
+      productionReady?: boolean;
+      devModeAvailable?: boolean;
+    }[]>("/auth/sso/providers")
       .then(setSsoProviders)
       .catch(() => {});
   }, [searchParams, setAuth, router]);
+
+  const returnUrl = searchParams.get("returnUrl");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -57,7 +73,7 @@ export default function LoginForm() {
       );
 
       setAuth(data.accessToken, data.user, data.refreshToken);
-      router.push("/");
+      router.push(returnUrl || "/");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Authentication failed");
     } finally {
@@ -111,9 +127,17 @@ export default function LoginForm() {
                 <div className="relative flex justify-center text-xs"><span className="bg-zinc-900 px-2 text-zinc-500">or continue with</span></div>
               </div>
               {ssoProviders.map((p) => (
-                <a key={p.type} href={`${API_BASE.replace("/api/v1", "")}${p.loginUrl}`}>
-                  <Button variant="secondary" className="w-full" type="button">{p.name}</Button>
-                </a>
+                <div key={p.type} className="space-y-1">
+                  <a href={`${API_BASE.replace("/api/v1", "")}${p.loginUrl}`}>
+                    <Button variant="secondary" className="w-full" type="button">{p.name}</Button>
+                  </a>
+                  {p.type === "saml" && p.requiresProfessionalPlan && (
+                    <p className="text-xs text-zinc-500 text-center">
+                      Requires Professional plan or higher
+                      {p.devModeAvailable && !p.productionReady ? " · demo dev-mode only" : ""}
+                    </p>
+                  )}
+                </div>
               ))}
             </div>
           )}

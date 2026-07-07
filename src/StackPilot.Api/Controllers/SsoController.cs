@@ -74,17 +74,23 @@ public class SsoController : ControllerBase
             {
                 type = "oidc",
                 name = _config["Authentication:Oidc:DisplayName"] ?? "Enterprise SSO",
-                loginUrl = "/api/v1/auth/oidc/login"
+                loginUrl = "/api/v1/auth/oidc/login",
+                requiresProfessionalPlan = false
             });
         }
         if (_config.GetValue<bool>("Authentication:Saml:Enabled"))
         {
+            var devMode = _config.GetValue<bool>("Authentication:Saml:DevMode");
+            var hasIdpCert = !string.IsNullOrWhiteSpace(_config["Authentication:Saml:IdpCertificate"]);
             providers.Add(new
             {
                 type = "saml",
                 name = _config["Authentication:Saml:DisplayName"] ?? "SAML 2.0 SSO",
                 loginUrl = "/api/v1/auth/saml/login",
-                metadataUrl = "/api/v1/auth/saml/metadata"
+                metadataUrl = "/api/v1/auth/saml/metadata",
+                requiresProfessionalPlan = true,
+                productionReady = hasIdpCert && !devMode,
+                devModeAvailable = devMode
             });
         }
         return Ok(ApiResponse<object>.Ok(providers));

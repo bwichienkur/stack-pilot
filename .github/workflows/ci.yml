@@ -82,6 +82,7 @@ jobs:
           ConnectionStrings__DefaultConnection: Host=localhost;Port=5432;Database=stackpilot;Username=stackpilot;Password=stackpilot
           ConnectionStrings__Redis: ""
           ASPNETCORE_ENVIRONMENT: Development
+          DEMO_SEED: "true"
 
       - name: Install frontend & Playwright
         working-directory: frontend
@@ -106,5 +107,6 @@ jobs:
         run: npm run test:e2e
         env:
           CI: true
+          DEMO_SEED: "true"
           PLAYWRIGHT_BASE_URL: http://localhost:3000
           PLAYWRIGHT_API_URL: http://localhost:5000/api/v1

@@ -126,6 +126,10 @@ public class TenantMiddleware
             method == HttpMethods.Get)
             return true;
 
+        if (path.Equals("/api/v1/organizations/invites/accept", StringComparison.OrdinalIgnoreCase) &&
+            method == HttpMethods.Post)
+            return true;
+
         return false;
     }
 }

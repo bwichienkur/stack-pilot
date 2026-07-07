@@ -10,7 +10,7 @@ import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast";
 import { STUB_NAV_FLAGS } from "@/lib/feature-flags";
-import { useApprovalGates, useUpdateApprovalGates, type ApprovalGate, type OrganizationInvite, type OutboundWebhook, type SamlConfig } from "@/lib/api-hooks";
+import { useApprovalGates, useUpdateApprovalGates, type ApprovalGate, type OrganizationInvite, type OrganizationInviteCreated, type InvitableRole, type OutboundWebhook, type SamlConfig } from "@/lib/api-hooks";
 import { Trash2, UserPlus } from "lucide-react";
 
 interface Settings {
@@ -83,7 +83,9 @@ export default function SettingsPage() {
   const [gates, setGates] = useState<ApprovalGate[]>([]);
   const [pendingInvites, setPendingInvites] = useState<OrganizationInvite[]>([]);
   const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState("Member");
+  const [inviteRoleId, setInviteRoleId] = useState("");
+  const [invitableRoles, setInvitableRoles] = useState<InvitableRole[]>([]);
+  const [lastInviteUrl, setLastInviteUrl] = useState<string | null>(null);
   const [webhooks, setWebhooks] = useState<OutboundWebhook[]>([]);
   const [webhookUrl, setWebhookUrl] = useState("");
   const [webhookEvents, setWebhookEvents] = useState("ticket.approved,ticket.released");
@@ -113,13 +115,14 @@ export default function SettingsPage() {
 
   const load = async () => {
     try {
-      const [s, m, b, invites, hooks, saml] = await Promise.all([
+      const [s, m, b, invites, hooks, saml, roles] = await Promise.all([
         api<Settings>(`/organizations/${orgId}/settings`, {}, token, orgId),
         api<Member[]>(`/organizations/${orgId}/members`, {}, token, orgId).catch(() => []),
         api<OrganizationBilling>(`/billing/organizations/${orgId}`, {}, token, orgId).catch(() => null),
         api<OrganizationInvite[]>(`/organizations/${orgId}/invites`, {}, token, orgId).catch(() => []),
         api<OutboundWebhook[]>(`/organizations/${orgId}/webhooks`, {}, token, orgId).catch(() => []),
         api<SamlConfig>(`/organizations/${orgId}/saml`, {}, token, orgId).catch(() => ({ enabled: false })),
+        api<InvitableRole[]>(`/organizations/roles`, {}, token, orgId).catch(() => []),
       ]);
       setSettings(s);
       setBilling(b);
@@ -130,6 +133,11 @@ export default function SettingsPage() {
       setPendingInvites(invites);
       setWebhooks(hooks);
       setSamlConfig(saml);
+      setInvitableRoles(roles);
+      if (roles.length > 0 && !inviteRoleId) {
+        const developer = roles.find((r) => r.name === "Developer") ?? roles[0];
+        setInviteRoleId(developer.id);
+      }
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Failed to load settings", "error");
     } finally {
@@ -150,17 +158,28 @@ export default function SettingsPage() {
   };
 
   const sendInvite = async () => {
-    if (!inviteEmail.trim()) return;
+    if (!inviteEmail.trim() || !inviteRoleId) return;
     try {
-      await api(`/organizations/${orgId}/invites`, {
+      const created = await api<OrganizationInviteCreated>(`/organizations/${orgId}/invites`, {
         method: "POST",
-        body: JSON.stringify({ email: inviteEmail.trim(), roleName: inviteRole }),
+        body: JSON.stringify({ email: inviteEmail.trim(), roleId: inviteRoleId }),
       }, token, orgId);
-      showToast("Invite sent", "success");
+      setLastInviteUrl(created.inviteUrl);
+      showToast("Invite created — share the link with your teammate", "success");
       setInviteEmail("");
       await load();
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Failed to send invite", "error");
+    }
+  };
+
+  const copyInviteLink = async () => {
+    if (!lastInviteUrl || typeof navigator === "undefined") return;
+    try {
+      await navigator.clipboard.writeText(lastInviteUrl);
+      showToast("Invite link copied", "success");
+    } catch {
+      showToast("Could not copy link", "error");
     }
   };
 
@@ -457,16 +476,23 @@ export default function SettingsPage() {
                   type="email"
                 />
                 <select
-                  value={inviteRole}
-                  onChange={(e) => setInviteRole(e.target.value)}
+                  value={inviteRoleId}
+                  onChange={(e) => setInviteRoleId(e.target.value)}
                   className="h-10 rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm text-zinc-100"
                 >
-                  {["Member", "Developer", "Client Admin"].map((r) => (
-                    <option key={r} value={r}>{r}</option>
+                  {invitableRoles.map((r) => (
+                    <option key={r.id} value={r.id}>{r.name}</option>
                   ))}
                 </select>
                 <Button onClick={sendInvite}><UserPlus className="h-4 w-4" /> Invite</Button>
               </div>
+              {lastInviteUrl && (
+                <div className="rounded-lg border border-zinc-700 bg-zinc-900/50 p-3 space-y-2">
+                  <p className="text-xs text-zinc-500">Share this invite link (valid 7 days):</p>
+                  <p className="text-sm text-zinc-300 break-all font-mono">{lastInviteUrl}</p>
+                  <Button size="sm" variant="secondary" onClick={copyInviteLink}>Copy link</Button>
+                </div>
+              )}
               {pendingInvites.length > 0 && (
                 <div className="space-y-2 pt-2">
                   <p className="text-xs text-zinc-500 uppercase tracking-wide">Pending invites</p>
@@ -513,7 +539,7 @@ export default function SettingsPage() {
               )}
             </Card>
 
-            {isProfessionalPlan && (
+            {isProfessionalPlan ? (
               <Card className="p-6 space-y-4">
                 <h2 className="text-lg font-semibold text-zinc-100">SAML SSO</h2>
                 <p className="text-sm text-zinc-400">Configure SAML 2.0 single sign-on for your identity provider.</p>
@@ -549,6 +575,14 @@ export default function SettingsPage() {
                 <Button size="sm" onClick={saveSaml} disabled={samlSaving}>
                   {samlSaving ? "Saving..." : "Save SAML config"}
                 </Button>
+              </Card>
+            ) : (
+              <Card className="p-6 space-y-2">
+                <h2 className="text-lg font-semibold text-zinc-100">SAML SSO</h2>
+                <p className="text-sm text-zinc-400">
+                  SAML single sign-on is available on Professional and Enterprise plans.{" "}
+                  <Link href="/pricing" className="text-indigo-400 hover:text-indigo-300">View pricing</Link>
+                </p>
               </Card>
             )}
 
