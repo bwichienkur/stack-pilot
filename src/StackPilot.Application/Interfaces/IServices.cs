@@ -10,6 +10,8 @@ public interface IAuthService
     Task<UserDto?> GetCurrentUserAsync(Guid userId, CancellationToken ct = default);
     Task<AuthResponse> HandleSsoLoginAsync(string email, string? firstName, string? lastName, string externalId, string provider, CancellationToken ct = default);
     Task<AuthResponse> RefreshSessionAsync(Guid userId, CancellationToken ct = default);
+    Task<AuthResponse> RefreshWithTokenAsync(string refreshToken, CancellationToken ct = default);
+    Task RevokeRefreshTokenAsync(string refreshToken, CancellationToken ct = default);
 }
 
 public interface IOrganizationService
@@ -19,6 +21,9 @@ public interface IOrganizationService
     Task<OrganizationDto?> GetByIdAsync(Guid id, Guid userId, CancellationToken ct = default);
     Task<WorkspaceDto> CreateWorkspaceAsync(Guid orgId, CreateWorkspaceRequest request, CancellationToken ct = default);
     Task<List<WorkspaceDto>> GetWorkspacesAsync(Guid orgId, CancellationToken ct = default);
+    Task<OrganizationSettingsDto> GetSettingsAsync(Guid orgId, CancellationToken ct = default);
+    Task<OrganizationSettingsDto> UpdateSettingsAsync(Guid orgId, UpdateOrganizationSettingsRequest request, CancellationToken ct = default);
+    Task<List<OrganizationMemberDto>> GetMembersAsync(Guid orgId, CancellationToken ct = default);
 }
 
 public interface IConnectorService

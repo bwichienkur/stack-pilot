@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  LayoutDashboard, GitBranch, Database, Network, FileText, Lightbulb,
+  LayoutDashboard, GitBranch, Network, FileText, Lightbulb,
   Ticket, CheckCircle, FlaskConical, Rocket, ScrollText, Settings,
   Plug, Bot, ChevronLeft, ChevronRight, LogOut
 } from "lucide-react";
 import { cn, api } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
+import { isNavEnabled } from "@/lib/feature-flags";
 import { useEffect, useState } from "react";
 
 const navItems = [
@@ -16,7 +17,6 @@ const navItems = [
   { href: "/applications", label: "Applications", icon: GitBranch },
   { href: "/connectors", label: "Connectors", icon: Plug },
   { href: "/architecture", label: "Architecture", icon: Network },
-  { href: "/graph", label: "Knowledge Graph", icon: Database },
   { href: "/docs", label: "Documentation", icon: FileText },
   { href: "/recommendations", label: "Recommendations", icon: Lightbulb },
   { href: "/tickets", label: "Tickets", icon: Ticket },
@@ -30,8 +30,10 @@ const navItems = [
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { user, logout } = useAuth();
+  const { user, logout, featureFlags } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
+
+  const visibleNav = navItems.filter((item) => isNavEnabled(item.href, featureFlags));
 
   return (
     <aside className={cn(
@@ -51,7 +53,7 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 overflow-y-auto py-4 px-2 space-y-1">
-        {navItems.map((item) => {
+        {visibleNav.map((item) => {
           const isActive = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
           return (
             <Link
@@ -98,7 +100,7 @@ export function Sidebar() {
 }
 
 export function OrgWorkspaceSwitcher() {
-  const { token, orgId, workspaceId, setOrg, setWorkspace } = useAuth();
+  const { token, orgId, workspaceId, setOrg, setWorkspace, setFeatureFlags } = useAuth();
   const [orgs, setOrgs] = useState<{ id: string; name: string }[]>([]);
   const [workspaces, setWorkspaces] = useState<{ id: string; name: string }[]>([]);
 
@@ -117,7 +119,11 @@ export function OrgWorkspaceSwitcher() {
         if (!workspaceId && ws.length > 0) setWorkspace(ws[0].id);
       })
       .catch(() => {});
-  }, [token, orgId, workspaceId, setWorkspace]);
+
+    api<{ featureFlags: Record<string, boolean> }>(`/organizations/${orgId}/settings`, {}, token, orgId)
+      .then((s) => setFeatureFlags(s.featureFlags || {}))
+      .catch(() => setFeatureFlags({}));
+  }, [token, orgId, workspaceId, setWorkspace, setFeatureFlags]);
 
   if (!token || orgs.length === 0) return null;
 

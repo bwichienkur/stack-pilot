@@ -2,6 +2,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
@@ -97,6 +98,64 @@ public class AuthService : IAuthService
         return await CreateAuthResponseAsync(user, ct);
     }
 
+    public async Task<AuthResponse> RefreshWithTokenAsync(string refreshToken, CancellationToken ct = default)
+    {
+        var hash = HashToken(refreshToken);
+        var stored = await _db.RefreshTokens
+            .Include(t => t.User)
+            .FirstOrDefaultAsync(t => t.TokenHash == hash, ct)
+            ?? throw new UnauthorizedAccessException("Invalid refresh token");
+
+        if (!stored.IsActive)
+            throw new UnauthorizedAccessException("Refresh token expired or revoked");
+
+        stored.RevokedAt = DateTime.UtcNow;
+        var response = await CreateAuthResponseAsync(stored.User, ct, stored.TokenHash);
+        await _db.SaveChangesAsync(ct);
+        return response;
+    }
+
+    public async Task RevokeRefreshTokenAsync(string refreshToken, CancellationToken ct = default)
+    {
+        var hash = HashToken(refreshToken);
+        var stored = await _db.RefreshTokens.FirstOrDefaultAsync(t => t.TokenHash == hash, ct);
+        if (stored is not null)
+        {
+            stored.RevokedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync(ct);
+        }
+    }
+
+    private async Task<AuthResponse> CreateAuthResponseAsync(ApplicationUser user, CancellationToken ct, string? replacedTokenHash = null)
+    {
+        var token = await GenerateJwtAsync(user, ct);
+        var refresh = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
+        var refreshHash = HashToken(refresh);
+
+        _db.RefreshTokens.Add(new RefreshToken
+        {
+            UserId = user.Id,
+            TokenHash = refreshHash,
+            ExpiresAt = DateTime.UtcNow.AddDays(30),
+            ReplacedByTokenHash = replacedTokenHash
+        });
+
+        if (replacedTokenHash is not null)
+        {
+            var old = await _db.RefreshTokens.FirstOrDefaultAsync(t => t.TokenHash == replacedTokenHash, ct);
+            if (old is not null) old.ReplacedByTokenHash = refreshHash;
+        }
+
+        await _db.SaveChangesAsync(ct);
+        return new AuthResponse(token, refresh, MapUser(user));
+    }
+
+    private static string HashToken(string token)
+    {
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(token));
+        return Convert.ToHexString(bytes);
+    }
+
     private async Task<AuthResponse> RegisterUserAsync(RegisterRequest request, CancellationToken ct)
     {
         if (await _db.Users.AnyAsync(u => u.Email == request.Email, ct))
@@ -113,13 +172,6 @@ public class AuthService : IAuthService
         _db.Users.Add(user);
         await _db.SaveChangesAsync(ct);
         return await CreateAuthResponseAsync(user, ct);
-    }
-
-    private async Task<AuthResponse> CreateAuthResponseAsync(ApplicationUser user, CancellationToken ct)
-    {
-        var token = await GenerateJwtAsync(user, ct);
-        var refresh = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
-        return new AuthResponse(token, refresh, MapUser(user));
     }
 
     private async Task<string> GenerateJwtAsync(ApplicationUser user, CancellationToken ct)
@@ -258,6 +310,70 @@ public class OrganizationService : IOrganizationService
             .Select(w => new WorkspaceDto(w.Id, w.OrganizationId, w.Name, w.Slug, w.Description, w.IsActive))
             .ToListAsync(ct);
     }
+
+    public async Task<OrganizationSettingsDto> GetSettingsAsync(Guid orgId, CancellationToken ct = default)
+    {
+        var org = await _db.Organizations.FindAsync([orgId], ct)
+            ?? throw new KeyNotFoundException("Organization not found");
+        return MapSettings(org);
+    }
+
+    public async Task<OrganizationSettingsDto> UpdateSettingsAsync(Guid orgId, UpdateOrganizationSettingsRequest request, CancellationToken ct = default)
+    {
+        var org = await _db.Organizations.FindAsync([orgId], ct)
+            ?? throw new KeyNotFoundException("Organization not found");
+
+        if (!string.IsNullOrWhiteSpace(request.Name))
+            org.Name = request.Name.Trim();
+
+        if (request.FeatureFlags is not null)
+            org.SettingsJson = JsonSerializer.Serialize(new { featureFlags = request.FeatureFlags });
+
+        await _db.SaveChangesAsync(ct);
+        return MapSettings(org);
+    }
+
+    public async Task<List<OrganizationMemberDto>> GetMembersAsync(Guid orgId, CancellationToken ct = default)
+    {
+        return await _db.OrganizationMembers
+            .Where(m => m.OrganizationId == orgId)
+            .Include(m => m.User)
+            .Include(m => m.Role)
+            .OrderBy(m => m.User.Email)
+            .Select(m => new OrganizationMemberDto(
+                m.UserId, m.User.Email, m.User.FirstName, m.User.LastName, m.Role.Name, m.JoinedAt))
+            .ToListAsync(ct);
+    }
+
+    private static OrganizationSettingsDto MapSettings(Organization org)
+    {
+        var flags = OrganizationFeatureFlags.Default;
+        if (!string.IsNullOrEmpty(org.SettingsJson))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(org.SettingsJson);
+                if (doc.RootElement.TryGetProperty("featureFlags", out var ff))
+                {
+                    foreach (var prop in ff.EnumerateObject())
+                        flags[prop.Name] = prop.Value.GetBoolean();
+                }
+            }
+            catch { /* use defaults */ }
+        }
+
+        return new OrganizationSettingsDto(org.Id, org.Name, org.Slug, org.Plan.ToString(), flags);
+    }
+}
+
+public static class OrganizationFeatureFlags
+{
+    public static readonly string[] All =
+    [
+        "applications", "docs", "recommendations", "qa", "uat", "deployments"
+    ];
+
+    public static Dictionary<string, bool> Default => All.ToDictionary(k => k, _ => false);
 }
 
 public class AuditService : IAuditService
@@ -296,7 +412,7 @@ public class AuditService : IAuditService
             .OrderByDescending(l => l.CreatedAt)
             .Skip((request.Page - 1) * request.PageSize)
             .Take(request.PageSize)
-            .Select(l => new AuditLogDto(l.Id, l.Action, l.EntityType, l.EntityId, l.UserId, l.CreatedAt))
+            .Select(l => new AuditLogDto(l.Id, l.Action, l.EntityType, l.EntityId, l.UserId, l.DetailsJson, l.CreatedAt))
             .ToListAsync(ct);
 
         return new PagedResult<AuditLogDto> { Items = items, TotalCount = total, Page = request.Page, PageSize = request.PageSize };

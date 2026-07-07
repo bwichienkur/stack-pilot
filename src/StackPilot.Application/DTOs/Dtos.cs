@@ -11,6 +11,9 @@ public record UserDto(Guid Id, string Email, string? FirstName, string? LastName
 public record OrganizationDto(Guid Id, string Name, string Slug, string Plan, bool IsActive);
 public record OrganizationCreatedDto(OrganizationDto Organization, string AccessToken);
 public record CreateOrganizationRequest(string Name, string Slug);
+public record OrganizationSettingsDto(Guid Id, string Name, string Slug, string Plan, Dictionary<string, bool> FeatureFlags);
+public record UpdateOrganizationSettingsRequest(string? Name, Dictionary<string, bool>? FeatureFlags);
+public record OrganizationMemberDto(Guid UserId, string Email, string? FirstName, string? LastName, string RoleName, DateTime JoinedAt);
 public record WorkspaceDto(Guid Id, Guid OrganizationId, string Name, string Slug, string? Description, bool IsActive);
 public record CreateWorkspaceRequest(string Name, string Slug, string? Description);
 
@@ -62,7 +65,7 @@ public record AiChatResponse(string Reply, Guid ConversationId, string[]? Citati
 public record AiCitationDto(Guid? NodeId, string Excerpt);
 public record AiRequirementsResult(string BusinessSummary, string FunctionalRequirements, string NonFunctionalRequirements, string AcceptanceCriteria, decimal RiskScore, decimal ConfidenceScore, List<AiCitationDto>? Citations = null);
 
-public record AuditLogDto(Guid Id, string Action, string? EntityType, Guid? EntityId, Guid? UserId, DateTime CreatedAt);
+public record AuditLogDto(Guid Id, string Action, string? EntityType, Guid? EntityId, Guid? UserId, string? DetailsJson, DateTime CreatedAt);
 public record BuildRunDto(Guid Id, string Status, string? Conclusion, string? LogsUrl, string? PullRequestUrl, DateTime? StartedAt, DateTime? CompletedAt);
 
 public record DashboardStatsDto(

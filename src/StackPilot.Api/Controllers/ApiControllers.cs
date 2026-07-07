@@ -56,6 +56,29 @@ public class AuthController : ControllerBase
     [Authorize]
     public async Task<ActionResult<ApiResponse<AuthResponse>>> RefreshSession(CancellationToken ct) =>
         Ok(ApiResponse<AuthResponse>.Ok(await _auth.RefreshSessionAsync(UserId, ct)));
+
+    [HttpPost("refresh")]
+    [AllowAnonymous]
+    [EnableRateLimiting("auth")]
+    public async Task<ActionResult<ApiResponse<AuthResponse>>> Refresh([FromBody] RefreshTokenRequest request, CancellationToken ct)
+    {
+        try
+        {
+            return Ok(ApiResponse<AuthResponse>.Ok(await _auth.RefreshWithTokenAsync(request.RefreshToken, ct)));
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Unauthorized(ApiResponse<AuthResponse>.Fail(new ApiError { Code = "INVALID_REFRESH_TOKEN", Message = "Invalid or expired refresh token" }));
+        }
+    }
+
+    [HttpPost("logout")]
+    [AllowAnonymous]
+    public async Task<IActionResult> Logout([FromBody] RefreshTokenRequest request, CancellationToken ct)
+    {
+        await _auth.RevokeRefreshTokenAsync(request.RefreshToken, ct);
+        return NoContent();
+    }
 }
 
 [ApiController]
@@ -105,6 +128,21 @@ public class OrganizationsController : ControllerBase
         var ws = await _orgs.CreateWorkspaceAsync(id, request, ct);
         return Ok(ApiResponse<WorkspaceDto>.Ok(ws));
     }
+
+    [HttpGet("{id:guid}/settings")]
+    [RequirePermission(Permissions.SettingsManage)]
+    public async Task<ActionResult<ApiResponse<OrganizationSettingsDto>>> GetSettings(Guid id, CancellationToken ct) =>
+        Ok(ApiResponse<OrganizationSettingsDto>.Ok(await _orgs.GetSettingsAsync(id, ct)));
+
+    [HttpPut("{id:guid}/settings")]
+    [RequirePermission(Permissions.SettingsManage)]
+    public async Task<ActionResult<ApiResponse<OrganizationSettingsDto>>> UpdateSettings(Guid id, [FromBody] UpdateOrganizationSettingsRequest request, CancellationToken ct) =>
+        Ok(ApiResponse<OrganizationSettingsDto>.Ok(await _orgs.UpdateSettingsAsync(id, request, ct)));
+
+    [HttpGet("{id:guid}/members")]
+    [RequirePermission(Permissions.UsersManage)]
+    public async Task<ActionResult<ApiResponse<List<OrganizationMemberDto>>>> Members(Guid id, CancellationToken ct) =>
+        Ok(ApiResponse<List<OrganizationMemberDto>>.Ok(await _orgs.GetMembersAsync(id, ct)));
 }
 
 [ApiController]

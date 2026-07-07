@@ -1,11 +1,15 @@
 using System.Threading.RateLimiting;
+using FluentValidation;
 using Hangfire;
 using Hangfire.PostgreSql;
+using Microsoft.AspNetCore.Mvc;
 using Serilog;
 using StackPilot.Api;
 using StackPilot.Api.Authorization;
 using StackPilot.Api.Extensions;
+using StackPilot.Api.Filters;
 using StackPilot.Api.Middleware;
+using StackPilot.Application.Validators;
 using StackPilot.Infrastructure;
 using StackPilot.Infrastructure.Persistence;
 
@@ -39,7 +43,12 @@ builder.Services.AddRateLimiter(options =>
             _ => new FixedWindowRateLimiterOptions { PermitLimit = 30, Window = TimeSpan.FromMinutes(1) }));
 });
 
-builder.Services.AddControllers();
+builder.Services.AddControllers(options =>
+{
+    options.Filters.Add<ValidationFilter>();
+});
+builder.Services.AddScoped<ValidationFilter>();
+builder.Services.AddValidatorsFromAssemblyContaining<RegisterRequestValidator>();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
@@ -100,6 +109,12 @@ if (!builder.Environment.IsEnvironment("Testing"))
     });
 }
 
+if (!builder.Environment.IsEnvironment("Testing"))
+{
+    builder.Services.AddHealthChecks()
+        .AddNpgSql(connectionString, name: "postgres");
+}
+
 var app = builder.Build();
 
 await DatabaseSeeder.SeedAsync(app.Services);
@@ -118,6 +133,7 @@ app.UseRateLimiter();
 app.UseAuthentication();
 app.UseTenantContext();
 app.UseAuthorization();
+app.UseAuditLogging();
 app.MapControllers();
 if (!app.Environment.IsEnvironment("Testing"))
 {
@@ -128,6 +144,8 @@ if (!app.Environment.IsEnvironment("Testing"))
 }
 
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", service = "StackPilot.Api", timestamp = DateTime.UtcNow }));
+if (!app.Environment.IsEnvironment("Testing"))
+    app.MapHealthChecks("/health/ready");
 
 app.Run();
 

@@ -23,6 +23,7 @@ public class AppDbContext : DbContext
     public DbSet<Permission> Permissions => Set<Permission>();
     public DbSet<RolePermission> RolePermissions => Set<RolePermission>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<EnvironmentConfig> EnvironmentConfigs => Set<EnvironmentConfig>();
     public DbSet<ConnectorDefinition> ConnectorDefinitions => Set<ConnectorDefinition>();
     public DbSet<ConnectorInstance> ConnectorInstances => Set<ConnectorInstance>();
@@ -116,6 +117,13 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<AuditLog>(e =>
         {
             e.HasIndex(x => new { x.OrganizationId, x.CreatedAt });
+        });
+
+        modelBuilder.Entity<RefreshToken>(e =>
+        {
+            e.HasIndex(x => x.TokenHash).IsUnique();
+            e.HasIndex(x => new { x.UserId, x.ExpiresAt });
+            e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
         });
 
         ApplyTenantFilters(modelBuilder);

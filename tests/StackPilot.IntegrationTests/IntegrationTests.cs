@@ -85,6 +85,30 @@ public class AuthIntegrationTests : IClassFixture<StackPilotWebApplicationFactor
     }
 
     [Fact]
+    public async Task RefreshToken_Rotates_And_Returns_New_AccessToken()
+    {
+        var email = $"refresh_{Guid.NewGuid():N}@stackpilot.test";
+        var registerResponse = await _client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            email,
+            password = "TestPassword123!",
+            firstName = "Test",
+            lastName = "User"
+        });
+
+        var registerBody = await registerResponse.Content.ReadFromJsonAsync<ApiResponse<AuthResponse>>();
+        var refreshToken = registerBody!.Data!.RefreshToken;
+        Assert.False(string.IsNullOrEmpty(refreshToken));
+
+        var refreshResponse = await _client.PostAsJsonAsync("/api/v1/auth/refresh", new { refreshToken });
+        Assert.Equal(HttpStatusCode.OK, refreshResponse.StatusCode);
+
+        var refreshBody = await refreshResponse.Content.ReadFromJsonAsync<ApiResponse<AuthResponse>>();
+        Assert.NotNull(refreshBody?.Data?.AccessToken);
+        Assert.NotEqual(refreshToken, refreshBody.Data.RefreshToken);
+    }
+
+    [Fact]
     public async Task Health_ReturnsHealthy()
     {
         var response = await _client.GetAsync("/health");

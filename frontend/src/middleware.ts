@@ -5,6 +5,11 @@ const publicPaths = ["/login"];
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  if (pathname === "/graph" || pathname.startsWith("/graph/")) {
+    return NextResponse.redirect(new URL("/architecture", request.url));
+  }
+
   if (publicPaths.some((p) => pathname.startsWith(p))) {
     return NextResponse.next();
   }

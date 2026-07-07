@@ -52,11 +52,11 @@ export default function LoginForm() {
         ? { email, password, firstName, lastName }
         : { email, password };
 
-      const data = await api<{ accessToken: string; user: { id: string; email: string; firstName?: string; lastName?: string } }>(
+      const data = await api<{ accessToken: string; refreshToken: string; user: { id: string; email: string; firstName?: string; lastName?: string } }>(
         endpoint, { method: "POST", body: JSON.stringify(body) }
       );
 
-      setAuth(data.accessToken, data.user);
+      setAuth(data.accessToken, data.user, data.refreshToken);
       router.push("/");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Authentication failed");
