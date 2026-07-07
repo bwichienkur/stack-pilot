@@ -122,6 +122,9 @@ public class ConnectorSyncJob
             foreach (var database in databaseNames)
                 jobs.EnqueueDatabaseScan(connectorId, database);
 
+            if (instance.Definition.Type is "jenkins" or "azure_pipelines" or "github_actions")
+                await SyncCiCdBuildRunsAsync(db, instance, result.Metadata, ct);
+
             await db.SaveChangesAsync(ct);
             _logger.LogInformation("Connector sync completed for {ConnectorId}: {Items} items", connectorId, result.ItemsProcessed);
         }
@@ -182,6 +185,106 @@ public class ConnectorSyncJob
 
         await db.SaveChangesAsync(ct);
     }
+
+    private static async Task SyncCiCdBuildRunsAsync(
+        AppDbContext db, ConnectorInstance instance, Dictionary<string, object>? metadata, CancellationToken ct)
+    {
+        if (metadata is null) return;
+
+        if (metadata.TryGetValue("builds", out var buildsObj))
+        {
+            var json = JsonSerializer.Serialize(buildsObj);
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var build in doc.RootElement.EnumerateArray())
+                {
+                    var externalId = build.TryGetProperty("id", out var idEl)
+                        ? idEl.ToString()
+                        : build.TryGetProperty("buildNumber", out var bn) ? bn.GetString() : null;
+                    if (string.IsNullOrWhiteSpace(externalId)) continue;
+
+                    var existing = await db.BuildRuns.IgnoreQueryFilters()
+                        .FirstOrDefaultAsync(b => b.ConnectorId == instance.Id && b.ExternalId == externalId, ct);
+
+                    var result = build.TryGetProperty("result", out var res) ? res.GetString() : null;
+                    var status = build.TryGetProperty("status", out var st) ? st.GetString() : null;
+                    var mappedStatus = MapCiStatus(status, result);
+
+                    if (existing is null)
+                    {
+                        db.BuildRuns.Add(new BuildRun
+                        {
+                            OrganizationId = instance.OrganizationId,
+                            ConnectorId = instance.Id,
+                            ExternalId = externalId,
+                            Status = mappedStatus,
+                            Conclusion = result,
+                            StartedAt = DateTime.UtcNow.AddHours(-1),
+                            CompletedAt = mappedStatus == BuildStatus.Completed ? DateTime.UtcNow : null
+                        });
+                    }
+                    else
+                    {
+                        existing.Status = mappedStatus;
+                        existing.Conclusion = result;
+                    }
+                }
+            }
+        }
+
+        if (metadata.TryGetValue("jobs", out var jobsObj))
+        {
+            var json = JsonSerializer.Serialize(jobsObj);
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var job in doc.RootElement.EnumerateArray())
+                {
+                    var jobName = job.TryGetProperty("job", out var jn) ? jn.GetString() : null;
+                    if (string.IsNullOrWhiteSpace(jobName)) continue;
+
+                    if (!job.TryGetProperty("lastBuild", out var lastBuild) || lastBuild.ValueKind == JsonValueKind.Null)
+                        continue;
+
+                    var buildNum = lastBuild.TryGetProperty("number", out var num) ? num.GetInt32() : 0;
+                    var externalId = $"{jobName}#{buildNum}";
+                    var result = lastBuild.TryGetProperty("result", out var res) ? res.GetString() : null;
+
+                    var existing = await db.BuildRuns.IgnoreQueryFilters()
+                        .FirstOrDefaultAsync(b => b.ConnectorId == instance.Id && b.ExternalId == externalId, ct);
+
+                    if (existing is null)
+                    {
+                        db.BuildRuns.Add(new BuildRun
+                        {
+                            OrganizationId = instance.OrganizationId,
+                            ConnectorId = instance.Id,
+                            ExternalId = externalId,
+                            Status = MapCiStatus(null, result),
+                            Conclusion = result,
+                            StartedAt = DateTime.UtcNow.AddHours(-2),
+                            CompletedAt = result is not null ? DateTime.UtcNow.AddHours(-1) : null
+                        });
+                    }
+                    else
+                    {
+                        existing.Status = MapCiStatus(null, result);
+                        existing.Conclusion = result;
+                    }
+                }
+            }
+        }
+    }
+
+    private static BuildStatus MapCiStatus(string? status, string? result) => (result ?? status)?.ToLowerInvariant() switch
+    {
+        "success" or "succeeded" or "completed" => BuildStatus.Completed,
+        "failure" or "failed" => BuildStatus.Failed,
+        "cancelled" or "canceled" => BuildStatus.Cancelled,
+        "inprogress" or "in_progress" or "building" => BuildStatus.InProgress,
+        _ => BuildStatus.Queued
+    };
 
     private static TicketPriority MapExternalPriority(string? priority) => priority?.ToLowerInvariant() switch
     {

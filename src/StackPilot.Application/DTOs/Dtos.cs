@@ -21,6 +21,11 @@ public record OrganizationInviteCreatedDto(
 public record CreateInviteRequest(string Email, Guid? RoleId = null, string? RoleName = null);
 public record AcceptInviteRequest(string Token);
 public record RoleDto(Guid Id, string Name, string? Description);
+public record OrganizationSamlConfigDto(
+    bool Enabled, string? EntityId, string? IdpMetadataUrl, string? IdpCertificate,
+    string? LoginUrl, string? MetadataUrl);
+public record UpdateOrganizationSamlConfigRequest(
+    bool Enabled, string? EntityId, string? IdpMetadataUrl, string? IdpCertificate);
 public record UpdateMemberRoleRequest(Guid UserId, Guid RoleId);
 public record WorkspaceDto(Guid Id, Guid OrganizationId, string Name, string Slug, string? Description, bool IsActive);
 public record CreateWorkspaceRequest(string Name, string Slug, string? Description);

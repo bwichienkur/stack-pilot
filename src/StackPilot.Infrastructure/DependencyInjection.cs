@@ -101,7 +101,8 @@ public static class DependencyInjection
         services.AddSingleton<IConnector, JenkinsConnector>();
         services.AddSingleton<JiraConnector>();
         services.AddSingleton<IConnector>(sp => sp.GetRequiredService<JiraConnector>());
-        services.AddSingleton<IConnector, ServiceNowConnector>();
+        services.AddSingleton<ServiceNowConnector>();
+        services.AddSingleton<IConnector>(sp => sp.GetRequiredService<ServiceNowConnector>());
         services.AddSingleton<IConnectorRegistry, ConnectorRegistry>();
 
         services.AddScoped<ConnectorSyncJob>();

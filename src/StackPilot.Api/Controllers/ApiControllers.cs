@@ -187,6 +187,17 @@ public class OrganizationsController : ControllerBase
         return NoContent();
     }
 
+    [HttpGet("{id:guid}/saml")]
+    [RequirePermission(Permissions.SettingsManage)]
+    public async Task<ActionResult<ApiResponse<OrganizationSamlConfigDto>>> GetSaml(Guid id, CancellationToken ct) =>
+        Ok(ApiResponse<OrganizationSamlConfigDto>.Ok(await _orgs.GetSamlConfigAsync(id, ct)));
+
+    [HttpPut("{id:guid}/saml")]
+    [RequirePermission(Permissions.SettingsManage)]
+    public async Task<ActionResult<ApiResponse<OrganizationSamlConfigDto>>> UpdateSaml(
+        Guid id, [FromBody] UpdateOrganizationSamlConfigRequest request, CancellationToken ct) =>
+        Ok(ApiResponse<OrganizationSamlConfigDto>.Ok(await _orgs.UpdateSamlConfigAsync(id, request, ct)));
+
     [HttpPut("{id:guid}/members/role")]
     [RequirePermission(Permissions.UsersManage)]
     public async Task<ActionResult<ApiResponse<OrganizationMemberDto>>> UpdateMemberRole(Guid id, [FromBody] UpdateMemberRoleRequest request, CancellationToken ct) =>

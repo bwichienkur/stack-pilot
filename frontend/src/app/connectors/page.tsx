@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppLayout } from "@/components/layout/sidebar";
-import { Card, CardContent, Badge, Button, Input } from "@/components/ui";
+import { Card, Badge, Button, Input } from "@/components/ui";
+import { ConnectorSchemaForm } from "@/components/connector-schema-form";
 import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast";
@@ -15,9 +16,11 @@ interface ConnectorDef {
   name: string;
   description?: string;
   category: string;
+  configSchema: string;
   capabilities: string[];
 }
 interface Connector { id: string; name: string; type: string; status: string; healthStatus: string; lastSyncAt?: string }
+interface SyncHistory { id: string; status: string; startedAt: string; completedAt?: string; itemsProcessed: number }
 
 const CATEGORY_ORDER = ["SourceCode", "Data", "CiCd", "Itsm"] as const;
 const CATEGORY_LABELS: Record<string, string> = {
@@ -26,6 +29,23 @@ const CATEGORY_LABELS: Record<string, string> = {
   CiCd: "CI/CD",
   Itsm: "ITSM & work"
 };
+
+function defaultConfigFromSchema(configSchema: string): Record<string, string> {
+  try {
+    const schema = JSON.parse(configSchema) as { properties?: Record<string, unknown> };
+    const config: Record<string, string> = {};
+    if (!schema.properties) return config;
+    for (const key of Object.keys(schema.properties)) {
+      if (["repositories", "projects", "jobs", "databases", "pipelines"].includes(key)) config[key] = "all";
+      else if (key === "port") config[key] = "5432";
+      else if (key === "table") config[key] = "incident";
+      else config[key] = "";
+    }
+    return config;
+  } catch {
+    return {};
+  }
+}
 
 export default function ConnectorsPage() {
   const { token, orgId, workspaceId } = useAuth();
@@ -37,8 +57,11 @@ export default function ConnectorsPage() {
   const [selectedDef, setSelectedDef] = useState("");
   const [activeCategory, setActiveCategory] = useState<string>("all");
   const [connectorName, setConnectorName] = useState("");
-  const [owner, setOwner] = useState("");
-  const [pat, setPat] = useState("");
+  const [formValues, setFormValues] = useState({ config: {} as Record<string, string>, credentials: {} as Record<string, string> });
+  const [expandedHistory, setExpandedHistory] = useState<string | null>(null);
+  const [syncHistory, setSyncHistory] = useState<SyncHistory[]>([]);
+
+  const selectedDefinition = definitions.find((d) => d.id === selectedDef);
 
   useEffect(() => {
     if (!token) { router.push("/login"); return; }
@@ -58,40 +81,61 @@ export default function ConnectorsPage() {
     }
   };
 
+  const onSelectDefinition = (defId: string) => {
+    setSelectedDef(defId);
+    const def = definitions.find((d) => d.id === defId);
+    if (!def) return;
+    setFormValues({ config: defaultConfigFromSchema(def.configSchema), credentials: {} });
+    if (!connectorName) setConnectorName(def.name);
+  };
+
   const addConnector = async () => {
     if (!workspaceId || !selectedDef) return;
-    const def = definitions.find((d) => d.id === selectedDef);
-    if (!def) return;
-
-    await api(`/workspaces/${workspaceId}/connectors`, {
-      method: "POST",
-      body: JSON.stringify({
-        name: connectorName,
-        definitionId: selectedDef,
-        configJson: JSON.stringify({ owner, repositories: "all" }),
-        credentials: { pat: pat || undefined }
-      })
-    }, token, orgId, workspaceId);
-
-    setShowAdd(false);
-    loadData();
+    try {
+      const creds = Object.fromEntries(Object.entries(formValues.credentials).filter(([, v]) => v.trim()));
+      await api(`/workspaces/${workspaceId}/connectors`, {
+        method: "POST",
+        body: JSON.stringify({
+          name: connectorName,
+          definitionId: selectedDef,
+          configJson: JSON.stringify(formValues.config),
+          credentials: Object.keys(creds).length > 0 ? creds : undefined,
+        }),
+      }, token, orgId, workspaceId);
+      setShowAdd(false);
+      setConnectorName("");
+      setSelectedDef("");
+      setFormValues({ config: {}, credentials: {} });
+      showToast("Connector created", "success");
+      await loadData();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to create connector", "error");
+    }
   };
 
   const testConnector = async (id: string) => {
     await api(`/connectors/${id}/test`, { method: "POST" }, token, orgId);
-    loadData();
+    await loadData();
   };
 
   const syncConnector = async (id: string) => {
     await api(`/connectors/${id}/sync`, { method: "POST" }, token, orgId);
-    loadData();
+    showToast("Sync started", "success");
+    await loadData();
+  };
+
+  const loadHistory = async (connectorId: string) => {
+    if (expandedHistory === connectorId) {
+      setExpandedHistory(null);
+      return;
+    }
+    const history = await api<SyncHistory[]>(`/connectors/${connectorId}/sync-history`, {}, token, orgId);
+    setSyncHistory(history);
+    setExpandedHistory(connectorId);
   };
 
   const categories = CATEGORY_ORDER.filter((c) => definitions.some((d) => d.category === c));
-  const filteredDefinitions = activeCategory === "all"
-    ? definitions
-    : definitions.filter((d) => d.category === activeCategory);
-
+  const filteredDefinitions = activeCategory === "all" ? definitions : definitions.filter((d) => d.category === activeCategory);
   const groupedDefinitions = CATEGORY_ORDER.reduce<Record<string, ConnectorDef[]>>((acc, cat) => {
     const items = definitions.filter((d) => d.category === cat);
     if (items.length > 0) acc[cat] = items;
@@ -112,46 +156,62 @@ export default function ConnectorsPage() {
         </div>
 
         {showAdd && (
-          <Card>
-            <CardContent className="p-6 space-y-4">
-              <h3 className="text-lg font-semibold text-zinc-100">Add Connector</h3>
-              <select value={selectedDef} onChange={(e) => setSelectedDef(e.target.value)} className="flex h-10 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm text-zinc-100">
-                <option value="">Select connector type</option>
-                {categories.map((cat) => (
-                  <optgroup key={cat} label={CATEGORY_LABELS[cat] ?? cat}>
-                    {definitions.filter((d) => d.category === cat).map((d) => (
-                      <option key={d.id} value={d.id}>{d.name}</option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
-              <Input placeholder="Connector name" value={connectorName} onChange={(e) => setConnectorName(e.target.value)} />
-              <Input placeholder="Owner / Server" value={owner} onChange={(e) => setOwner(e.target.value)} />
-              <Input type="password" placeholder="Personal Access Token" value={pat} onChange={(e) => setPat(e.target.value)} />
-              <div className="flex gap-2">
-                <Button onClick={addConnector}>Create</Button>
-                <Button variant="secondary" onClick={() => setShowAdd(false)}>Cancel</Button>
-              </div>
-            </CardContent>
+          <Card className="p-6 space-y-4">
+            <h3 className="text-lg font-semibold text-zinc-100">Add Connector</h3>
+            <select
+              value={selectedDef}
+              onChange={(e) => onSelectDefinition(e.target.value)}
+              className="flex h-10 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm text-zinc-100"
+            >
+              <option value="">Select connector type</option>
+              {categories.map((cat) => (
+                <optgroup key={cat} label={CATEGORY_LABELS[cat] ?? cat}>
+                  {definitions.filter((d) => d.category === cat).map((d) => (
+                    <option key={d.id} value={d.id}>{d.name}</option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+            <Input placeholder="Connector name" value={connectorName} onChange={(e) => setConnectorName(e.target.value)} />
+            {selectedDefinition && (
+              <ConnectorSchemaForm
+                connectorType={selectedDefinition.type}
+                configSchemaJson={selectedDefinition.configSchema}
+                values={formValues}
+                onChange={setFormValues}
+              />
+            )}
+            <div className="flex gap-2">
+              <Button onClick={addConnector} disabled={!selectedDef || !connectorName.trim()}>Create</Button>
+              <Button variant="secondary" onClick={() => setShowAdd(false)}>Cancel</Button>
+            </div>
           </Card>
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {connectors.map((c) => (
-            <Card key={c.id} className="hover:border-zinc-700 transition-colors">
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-semibold text-zinc-100">{c.name}</h3>
-                  <Badge variant={c.healthStatus === "Healthy" ? "success" : "warning"}>{c.healthStatus}</Badge>
+            <Card key={c.id} className="p-6 hover:border-zinc-700 transition-colors">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-semibold text-zinc-100">{c.name}</h3>
+                <Badge variant={c.healthStatus === "Healthy" ? "success" : "warning"}>{c.healthStatus}</Badge>
+              </div>
+              <p className="text-sm text-zinc-400 mb-1">{c.type}</p>
+              <Badge variant="neutral">{c.status}</Badge>
+              {c.lastSyncAt && <p className="text-xs text-zinc-500 mt-3">Last sync: {new Date(c.lastSyncAt).toLocaleString()}</p>}
+              <div className="flex flex-wrap gap-2 mt-4">
+                <Button variant="secondary" size="sm" onClick={() => testConnector(c.id)}><CheckCircle className="h-3 w-3" /> Test</Button>
+                <Button variant="secondary" size="sm" onClick={() => syncConnector(c.id)}><RefreshCw className="h-3 w-3" /> Sync</Button>
+                <Button variant="ghost" size="sm" onClick={() => loadHistory(c.id)}>History</Button>
+              </div>
+              {expandedHistory === c.id && syncHistory.length > 0 && (
+                <div className="mt-4 pt-3 border-t border-zinc-800 space-y-1">
+                  {syncHistory.slice(0, 5).map((h) => (
+                    <p key={h.id} className="text-xs text-zinc-500">
+                      {h.status} · {h.itemsProcessed} items · {new Date(h.startedAt).toLocaleString()}
+                    </p>
+                  ))}
                 </div>
-                <p className="text-sm text-zinc-400 mb-1">{c.type}</p>
-                <Badge variant="neutral">{c.status}</Badge>
-                {c.lastSyncAt && <p className="text-xs text-zinc-500 mt-3">Last sync: {new Date(c.lastSyncAt).toLocaleString()}</p>}
-                <div className="flex gap-2 mt-4">
-                  <Button variant="secondary" size="sm" onClick={() => testConnector(c.id)}><CheckCircle className="h-3 w-3" /> Test</Button>
-                  <Button variant="secondary" size="sm" onClick={() => syncConnector(c.id)}><RefreshCw className="h-3 w-3" /> Sync</Button>
-                </div>
-              </CardContent>
+              )}
             </Card>
           ))}
         </div>
@@ -167,20 +227,11 @@ export default function ConnectorsPage() {
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-zinc-100">Available Connectors</h2>
             <div className="flex flex-wrap gap-2">
-              <Button
-                variant={activeCategory === "all" ? "default" : "secondary"}
-                size="sm"
-                onClick={() => setActiveCategory("all")}
-              >
+              <Button variant={activeCategory === "all" ? "default" : "secondary"} size="sm" onClick={() => setActiveCategory("all")}>
                 All ({definitions.length})
               </Button>
               {categories.map((cat) => (
-                <Button
-                  key={cat}
-                  variant={activeCategory === cat ? "default" : "secondary"}
-                  size="sm"
-                  onClick={() => setActiveCategory(cat)}
-                >
+                <Button key={cat} variant={activeCategory === cat ? "default" : "secondary"} size="sm" onClick={() => setActiveCategory(cat)}>
                   {CATEGORY_LABELS[cat] ?? cat} ({definitions.filter((d) => d.category === cat).length})
                 </Button>
               ))}
@@ -191,9 +242,7 @@ export default function ConnectorsPage() {
             <div className="space-y-8">
               {Object.entries(groupedDefinitions).map(([cat, items]) => (
                 <div key={cat}>
-                  <h3 className="text-sm font-medium text-zinc-400 uppercase tracking-wide mb-3">
-                    {CATEGORY_LABELS[cat] ?? cat}
-                  </h3>
+                  <h3 className="text-sm font-medium text-zinc-400 uppercase tracking-wide mb-3">{CATEGORY_LABELS[cat] ?? cat}</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                     {items.map((d) => (
                       <Card key={d.id} className="p-4">

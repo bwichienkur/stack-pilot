@@ -30,6 +30,8 @@ public interface IOrganizationService
     Task RevokeInviteAsync(Guid orgId, Guid inviteId, CancellationToken ct = default);
     Task<OrganizationDto> AcceptInviteAsync(AcceptInviteRequest request, Guid userId, CancellationToken ct = default);
     Task<OrganizationMemberDto> UpdateMemberRoleAsync(Guid orgId, UpdateMemberRoleRequest request, CancellationToken ct = default);
+    Task<OrganizationSamlConfigDto> GetSamlConfigAsync(Guid orgId, CancellationToken ct = default);
+    Task<OrganizationSamlConfigDto> UpdateSamlConfigAsync(Guid orgId, UpdateOrganizationSamlConfigRequest request, CancellationToken ct = default);
 }
 
 public interface IConnectorService

@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AppLayout } from "@/components/layout/sidebar";
-import { Card, Badge, Button } from "@/components/ui";
+import { Card, Badge, Button, Input } from "@/components/ui";
 import { PageSkeleton } from "@/components/page-skeleton";
 import { EmptyState } from "@/components/empty-state";
 import { useAuth } from "@/lib/auth-context";
@@ -26,6 +26,7 @@ export default function QaPage() {
   const router = useRouter();
   const { showToast } = useToast();
   const { data: tickets = [], isLoading, refetch } = usePendingQa() as { data: Ticket[]; isLoading: boolean; refetch: () => void };
+  const [evidenceByTicket, setEvidenceByTicket] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!token) router.push("/login");
@@ -33,9 +34,17 @@ export default function QaPage() {
 
   const submitQa = async (ticketId: string, result: string) => {
     try {
+      const evidenceRaw = evidenceByTicket[ticketId]?.trim();
+      const evidenceUrls = evidenceRaw
+        ? evidenceRaw.split(",").map((u) => u.trim()).filter(Boolean)
+        : undefined;
       await api(`/tickets/${ticketId}/qa`, {
         method: "POST",
-        body: JSON.stringify({ result, notes: result === "pass" ? "QA passed" : "QA failed — needs fixes" }),
+        body: JSON.stringify({
+          result,
+          notes: result === "pass" ? "QA passed" : "QA failed — needs fixes",
+          evidenceUrls,
+        }),
       }, token, orgId, workspaceId);
       showToast(result === "pass" ? "QA passed" : "QA failed", result === "pass" ? "success" : "error");
       refetch();
@@ -72,6 +81,12 @@ export default function QaPage() {
                     <Badge>{t.priority}</Badge>
                   </div>
                   <Link href={`/tickets/${t.id}`} className="text-zinc-100 font-medium hover:text-indigo-400">{t.title}</Link>
+                  <Input
+                    className="mt-2"
+                    placeholder="Evidence URLs (comma-separated)"
+                    value={evidenceByTicket[t.id] ?? ""}
+                    onChange={(e) => setEvidenceByTicket((prev) => ({ ...prev, [t.id]: e.target.value }))}
+                  />
                 </div>
                 <div className="flex gap-2">
                   <Button size="sm" variant="secondary" onClick={() => submitQa(t.id, "pass")}>

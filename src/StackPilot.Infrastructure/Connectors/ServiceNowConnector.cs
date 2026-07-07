@@ -103,6 +103,40 @@ public class ServiceNowConnector : ConnectorBase
         }
     }
 
+    public async Task PushTicketStatusAsync(ConnectorContext context, string externalReference, string ticketStatus, CancellationToken ct = default)
+    {
+        var (instanceUrl, username, password) = GetCredentials(context);
+        if (instanceUrl is null || username is null || password is null) return;
+
+        var config = ParseConfig(context.ConfigJson);
+        var table = config.GetValueOrDefault("table", "incident");
+        var state = MapToServiceNowState(ticketStatus);
+        if (state is null) return;
+
+        try
+        {
+            var client = CreateClient(instanceUrl, username, password);
+            var payload = JsonSerializer.Serialize(new { state });
+            using var content = new StringContent(payload, Encoding.UTF8, "application/json");
+            await client.PutAsync($"/api/now/table/{table}/{externalReference}", content, ct);
+        }
+        catch
+        {
+            // Best-effort push-back
+        }
+    }
+
+    private static string? MapToServiceNowState(string ticketStatus) => ticketStatus.ToLowerInvariant() switch
+    {
+        "submitted" or "aianalysispending" or "requirementsdrafted" => "1",
+        "awaitingapproval" => "2",
+        "approved" or "implementationinprogress" or "buildrunning" => "2",
+        "deployedtotest" or "qapassed" or "uatinprogress" => "2",
+        "uataccepted" or "scheduledforproduction" => "2",
+        "deployedtoproduction" or "closed" => "7",
+        _ => null
+    };
+
     private static string MapState(string? state) => state switch
     {
         "1" or "New" => "New",

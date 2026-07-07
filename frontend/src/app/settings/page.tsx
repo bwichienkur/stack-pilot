@@ -91,6 +91,7 @@ export default function SettingsPage() {
   const [webhookEvents, setWebhookEvents] = useState("ticket.approved,ticket.released");
   const [samlConfig, setSamlConfig] = useState<SamlConfig>({ enabled: false });
   const [samlSaving, setSamlSaving] = useState(false);
+  const [gdprLoading, setGdprLoading] = useState(false);
 
   const { data: approvalGates } = useApprovalGates();
   const updateGates = useUpdateApprovalGates();
@@ -180,6 +181,45 @@ export default function SettingsPage() {
       showToast("Invite link copied", "success");
     } catch {
       showToast("Could not copy link", "error");
+    }
+  };
+
+  const exportOrganizationData = async () => {
+    if (!orgId || !token) return;
+    setGdprLoading(true);
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api/v1"}/organizations/${orgId}/export`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "X-Organization-Id": orgId },
+      });
+      if (!res.ok) throw new Error("Export failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `stackpilot-export-${orgId}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast("Data export downloaded", "success");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Export failed", "error");
+    } finally {
+      setGdprLoading(false);
+    }
+  };
+
+  const deleteOrganizationData = async () => {
+    if (!orgId || !token) return;
+    if (!window.confirm("Permanently erase all organization data? This cannot be undone.")) return;
+    setGdprLoading(true);
+    try {
+      await api(`/organizations/${orgId}/delete-data`, { method: "POST" }, token, orgId);
+      showToast("Organization data erased", "success");
+      router.push("/login");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Delete failed", "error");
+    } finally {
+      setGdprLoading(false);
     }
   };
 
@@ -422,7 +462,7 @@ export default function SettingsPage() {
 
             <Card className="p-6 space-y-4">
               <h2 className="text-lg font-semibold text-zinc-100">Feature modules</h2>
-              <p className="text-sm text-zinc-400">Enable preview modules in the sidebar. Core workflows (connectors, architecture, tickets, approvals) are always available.</p>
+              <p className="text-sm text-zinc-400">Toggle optional workflow modules in the sidebar.</p>
               <div className="space-y-3">
                 {STUB_NAV_FLAGS.map((key) => (
                   <label key={key} className="flex items-center justify-between gap-4 py-2 border-b border-zinc-800 last:border-0">
@@ -585,6 +625,21 @@ export default function SettingsPage() {
                 </p>
               </Card>
             )}
+
+            <Card className="p-6 space-y-4">
+              <h2 className="text-lg font-semibold text-zinc-100">Data & privacy (GDPR)</h2>
+              <p className="text-sm text-zinc-400">
+                Export a JSON archive of organization data or permanently erase all tenant data. Erasure removes tickets, connectors, graph data, and audit logs.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="secondary" disabled={gdprLoading} onClick={exportOrganizationData}>
+                  Export organization data
+                </Button>
+                <Button size="sm" variant="destructive" disabled={gdprLoading} onClick={deleteOrganizationData}>
+                  Erase organization data
+                </Button>
+              </div>
+            </Card>
 
             <Card className="p-6 space-y-4">
               <h2 className="text-lg font-semibold text-zinc-100">Notifications</h2>

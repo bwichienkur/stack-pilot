@@ -32,14 +32,15 @@ public class AzureDevOpsRepositoryScanner : IRepositoryScanner
 
             var json = await response.Content.ReadFromJsonAsync<JsonElement>(ct);
             var defaultBranch = json.TryGetProperty("defaultBranch", out var branch) ? branch.GetString()?.Replace("refs/heads/", "") : "main";
+            var (stack, frameworks) = await DetectStackAsync(client, organization, projectSegment, repositoryName, defaultBranch ?? "main", ct);
 
             return new RepositoryScanResult
             {
                 RepositoryName = repositoryName,
                 ApplicationName = repositoryName,
-                Purpose = "Azure DevOps repository inventory scan",
-                TechnologyStack = ["Unknown"],
-                Frameworks = [],
+                Purpose = "Azure DevOps repository scan",
+                TechnologyStack = stack,
+                Frameworks = frameworks,
                 Metadata = new()
                 {
                     ["provider"] = "azure_devops",
@@ -53,6 +54,35 @@ public class AzureDevOpsRepositoryScanner : IRepositoryScanner
         {
             return Fallback(repositoryName, ex.Message);
         }
+    }
+
+    private static async Task<(List<string> Stack, List<string> Frameworks)> DetectStackAsync(
+        HttpClient client, string organization, string projectSegment, string repositoryName, string branch, CancellationToken ct)
+    {
+        var stack = new List<string>();
+        var frameworks = new List<string>();
+
+        foreach (var path in new[] { "/package.json", "/StackPilot.sln", "/pom.xml", "/go.mod" })
+        {
+            var itemUrl = $"https://dev.azure.com/{organization}/{projectSegment}_apis/git/repositories/{Uri.EscapeDataString(repositoryName)}/items?path={Uri.EscapeDataString(path)}&versionDescriptor.version={Uri.EscapeDataString(branch)}&api-version=7.0";
+            var itemRes = await client.GetAsync(itemUrl, ct);
+            if (!itemRes.IsSuccessStatusCode) continue;
+
+            var content = await itemRes.Content.ReadAsStringAsync(ct);
+            if (path.EndsWith("package.json", StringComparison.Ordinal))
+            {
+                stack.Add("Node.js");
+                if (content.Contains("\"next\"", StringComparison.Ordinal)) frameworks.Add("Next.js");
+                if (content.Contains("\"react\"", StringComparison.Ordinal)) frameworks.Add("React");
+            }
+            else if (path.EndsWith(".sln", StringComparison.Ordinal)) stack.Add(".NET");
+            else if (path.EndsWith("pom.xml", StringComparison.Ordinal)) stack.Add("Java");
+            else if (path.EndsWith("go.mod", StringComparison.Ordinal)) stack.Add("Go");
+            break;
+        }
+
+        if (stack.Count == 0) stack.Add("Unknown");
+        return (stack, frameworks);
     }
 
     private static HttpClient CreateClient(string pat)

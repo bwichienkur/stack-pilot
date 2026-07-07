@@ -349,11 +349,11 @@ public class OrganizationService : IOrganizationService
         if (!string.IsNullOrWhiteSpace(request.Name))
             org.Name = request.Name.Trim();
 
-        var (flags, slack) = ReadSettings(org.SettingsJson);
+        var (flags, slack, _) = ReadAllSettings(org.SettingsJson);
         if (request.FeatureFlags is not null) flags = request.FeatureFlags;
         if (request.SlackWebhookUrl is not null) slack = request.SlackWebhookUrl;
 
-        org.SettingsJson = JsonSerializer.Serialize(new { featureFlags = flags, slackWebhookUrl = slack });
+        org.SettingsJson = SerializeSettings(flags, slack, ReadSamlSettings(org.SettingsJson));
         await _db.SaveChangesAsync(ct);
         return MapSettings(org);
     }
@@ -503,29 +503,70 @@ public class OrganizationService : IOrganizationService
         return new OrganizationMemberDto(member.UserId, member.User.Email, member.User.FirstName, member.User.LastName, role.Name, member.JoinedAt);
     }
 
-    private static string HashInviteToken(string token)
+    public async Task<OrganizationSamlConfigDto> GetSamlConfigAsync(Guid orgId, CancellationToken ct = default)
     {
-        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(token));
-        return Convert.ToHexString(bytes);
+        var org = await _db.Organizations.FindAsync([orgId], ct)
+            ?? throw new KeyNotFoundException("Organization not found");
+
+        var saml = ReadSamlSettings(org.SettingsJson);
+        var apiBase = (_configuration["Authentication:Saml:AcsUrl"] ?? "").Replace("/api/v1/auth/saml/acs", "", StringComparison.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(apiBase))
+            apiBase = "http://localhost:5000";
+
+        return new OrganizationSamlConfigDto(
+            saml.Enabled,
+            saml.EntityId ?? $"stackpilot-{org.Slug}",
+            saml.IdpMetadataUrl,
+            MaskCertificate(saml.IdpCertificate),
+            $"{apiBase}/api/v1/auth/saml/login?orgSlug={org.Slug}",
+            $"{apiBase}/api/v1/auth/saml/metadata?orgSlug={org.Slug}");
     }
 
-    private static OrganizationSettingsDto MapSettings(Organization org)
+    public async Task<OrganizationSamlConfigDto> UpdateSamlConfigAsync(
+        Guid orgId, UpdateOrganizationSamlConfigRequest request, CancellationToken ct = default)
     {
-        var flags = OrganizationFeatureFlags.Default;
-        string? slackWebhook = null;
-        if (!string.IsNullOrEmpty(org.SettingsJson))
+        var org = await _db.Organizations.FindAsync([orgId], ct)
+            ?? throw new KeyNotFoundException("Organization not found");
+
+        if (!PlanCatalog.LimitsFor(org.Plan).SamlSso)
+            throw new InvalidOperationException("SAML SSO requires Professional plan or higher");
+
+        var (flags, slack, saml) = ReadAllSettings(org.SettingsJson);
+        saml = saml with
         {
-            (flags, slackWebhook) = ReadSettings(org.SettingsJson);
-        }
+            Enabled = request.Enabled,
+            EntityId = request.EntityId?.Trim(),
+            IdpMetadataUrl = request.IdpMetadataUrl?.Trim(),
+            IdpCertificate = string.IsNullOrWhiteSpace(request.IdpCertificate)
+                ? saml.IdpCertificate
+                : request.IdpCertificate.Trim()
+        };
 
-        return new OrganizationSettingsDto(org.Id, org.Name, org.Slug, org.Plan.ToString(), flags, slackWebhook);
+        org.SettingsJson = SerializeSettings(flags, slack, saml);
+        await _db.SaveChangesAsync(ct);
+        return await GetSamlConfigAsync(orgId, ct);
     }
 
-    private static (Dictionary<string, bool> Flags, string? Slack) ReadSettings(string? settingsJson)
+    private static string? MaskCertificate(string? pem)
+    {
+        if (string.IsNullOrWhiteSpace(pem)) return null;
+        return pem.Length <= 40 ? "***" : $"{pem[..20]}...{pem[^20..]}";
+    }
+
+    private sealed record SamlSettings(bool Enabled, string? EntityId, string? IdpMetadataUrl, string? IdpCertificate);
+
+    private static SamlSettings ReadSamlSettings(string? settingsJson)
+    {
+        var (_, _, saml) = ReadAllSettings(settingsJson);
+        return saml;
+    }
+
+    private static (Dictionary<string, bool> Flags, string? Slack, SamlSettings Saml) ReadAllSettings(string? settingsJson)
     {
         var flags = OrganizationFeatureFlags.Default;
         string? slack = null;
-        if (string.IsNullOrEmpty(settingsJson)) return (flags, slack);
+        var saml = new SamlSettings(false, null, null, null);
+        if (string.IsNullOrEmpty(settingsJson)) return (flags, slack, saml);
 
         try
         {
@@ -537,9 +578,49 @@ public class OrganizationService : IOrganizationService
             }
             if (doc.RootElement.TryGetProperty("slackWebhookUrl", out var slackProp))
                 slack = slackProp.GetString();
+            if (doc.RootElement.TryGetProperty("saml", out var samlProp))
+            {
+                saml = new SamlSettings(
+                    samlProp.TryGetProperty("enabled", out var en) && en.GetBoolean(),
+                    samlProp.TryGetProperty("entityId", out var eid) ? eid.GetString() : null,
+                    samlProp.TryGetProperty("idpMetadataUrl", out var meta) ? meta.GetString() : null,
+                    samlProp.TryGetProperty("idpCertificate", out var cert) ? cert.GetString() : null);
+            }
         }
         catch { /* defaults */ }
 
+        return (flags, slack, saml);
+    }
+
+    private static string SerializeSettings(Dictionary<string, bool> flags, string? slack, SamlSettings saml) =>
+        JsonSerializer.Serialize(new
+        {
+            featureFlags = flags,
+            slackWebhookUrl = slack,
+            saml = new
+            {
+                enabled = saml.Enabled,
+                entityId = saml.EntityId,
+                idpMetadataUrl = saml.IdpMetadataUrl,
+                idpCertificate = saml.IdpCertificate
+            }
+        });
+
+    private static string HashInviteToken(string token)
+    {
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(token));
+        return Convert.ToHexString(bytes);
+    }
+
+    private static OrganizationSettingsDto MapSettings(Organization org)
+    {
+        var (flags, slack, _) = ReadAllSettings(org.SettingsJson);
+        return new OrganizationSettingsDto(org.Id, org.Name, org.Slug, org.Plan.ToString(), flags, slack);
+    }
+
+    private static (Dictionary<string, bool> Flags, string? Slack) ReadSettings(string? settingsJson)
+    {
+        var (flags, slack, _) = ReadAllSettings(settingsJson);
         return (flags, slack);
     }
 }

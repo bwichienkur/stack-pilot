@@ -23,9 +23,10 @@ public class TicketService : ITicketService
     private readonly IApprovalGateService _approvalGates;
     private readonly IOutboundWebhookService _outboundWebhooks;
     private readonly JiraConnector _jiraConnector;
+    private readonly ServiceNowConnector _serviceNowConnector;
     private readonly ICredentialEncryptionService _encryption;
 
-    public TicketService(AppDbContext db, ITenantContext tenant, IAuditService audit, IBackgroundJobService jobs, IPermissionValidator permissions, INotificationService notifications, IApprovalGateService approvalGates, IOutboundWebhookService outboundWebhooks, JiraConnector jiraConnector, ICredentialEncryptionService encryption)
+    public TicketService(AppDbContext db, ITenantContext tenant, IAuditService audit, IBackgroundJobService jobs, IPermissionValidator permissions, INotificationService notifications, IApprovalGateService approvalGates, IOutboundWebhookService outboundWebhooks, JiraConnector jiraConnector, ServiceNowConnector serviceNowConnector, ICredentialEncryptionService encryption)
     {
         _db = db;
         _tenant = tenant;
@@ -36,6 +37,7 @@ public class TicketService : ITicketService
         _approvalGates = approvalGates;
         _outboundWebhooks = outboundWebhooks;
         _jiraConnector = jiraConnector;
+        _serviceNowConnector = serviceNowConnector;
         _encryption = encryption;
     }
 
@@ -117,7 +119,7 @@ public class TicketService : ITicketService
             TicketStateMachine.ValidateTransition(ticket.Status, newStatus);
             var previousStatus = ticket.Status;
             ticket.Status = newStatus;
-            await PushJiraStatusIfLinkedAsync(ticket, ct);
+            await PushExternalStatusIfLinkedAsync(ticket, ct);
             await _outboundWebhooks.DispatchAsync("ticket.status_changed", ticket.OrganizationId,
                 new { ticketId = ticket.Id, from = previousStatus.ToString(), to = newStatus.ToString() }, ct);
         }
@@ -349,7 +351,7 @@ public class TicketService : ITicketService
         return new ReleaseScheduleDto(release.Id, release.TicketId, release.ScheduledAt, release.ReleaseWindow, release.Status.ToString());
     }
 
-    private async Task PushJiraStatusIfLinkedAsync(Ticket ticket, CancellationToken ct)
+    private async Task PushExternalStatusIfLinkedAsync(Ticket ticket, CancellationToken ct)
     {
         if (string.IsNullOrEmpty(ticket.ExternalReference)) return;
 
@@ -358,23 +360,44 @@ public class TicketService : ITicketService
             .Include(c => c.Credentials)
             .FirstOrDefaultAsync(c => c.WorkspaceId == ticket.WorkspaceId && c.Definition.Type == "jira", ct);
 
-        if (jiraConnector is null) return;
-
-        var credentials = jiraConnector.Credentials.ToDictionary(
-            c => c.CredentialType,
-            c => _encryption.Decrypt(c.EncryptedValue, jiraConnector.OrganizationId));
-
-        var context = new ConnectorContext
+        if (jiraConnector is not null)
         {
-            OrganizationId = jiraConnector.OrganizationId,
-            WorkspaceId = jiraConnector.WorkspaceId,
-            ConnectorInstanceId = jiraConnector.Id,
-            ConnectorType = "jira",
-            ConfigJson = jiraConnector.ConfigJson,
-            Credentials = credentials
-        };
+            var credentials = jiraConnector.Credentials.ToDictionary(
+                c => c.CredentialType,
+                c => _encryption.Decrypt(c.EncryptedValue, jiraConnector.OrganizationId));
 
-        await _jiraConnector.PushTicketStatusAsync(context, ticket.ExternalReference, ticket.Status.ToString(), ct);
+            await _jiraConnector.PushTicketStatusAsync(new ConnectorContext
+            {
+                OrganizationId = jiraConnector.OrganizationId,
+                WorkspaceId = jiraConnector.WorkspaceId,
+                ConnectorInstanceId = jiraConnector.Id,
+                ConnectorType = "jira",
+                ConfigJson = jiraConnector.ConfigJson,
+                Credentials = credentials
+            }, ticket.ExternalReference, ticket.Status.ToString(), ct);
+            return;
+        }
+
+        var snowConnector = await _db.ConnectorInstances
+            .Include(c => c.Definition)
+            .Include(c => c.Credentials)
+            .FirstOrDefaultAsync(c => c.WorkspaceId == ticket.WorkspaceId && c.Definition.Type == "servicenow", ct);
+
+        if (snowConnector is null) return;
+
+        var snowCredentials = snowConnector.Credentials.ToDictionary(
+            c => c.CredentialType,
+            c => _encryption.Decrypt(c.EncryptedValue, snowConnector.OrganizationId));
+
+        await _serviceNowConnector.PushTicketStatusAsync(new ConnectorContext
+        {
+            OrganizationId = snowConnector.OrganizationId,
+            WorkspaceId = snowConnector.WorkspaceId,
+            ConnectorInstanceId = snowConnector.Id,
+            ConnectorType = "servicenow",
+            ConfigJson = snowConnector.ConfigJson,
+            Credentials = snowCredentials
+        }, ticket.ExternalReference, ticket.Status.ToString(), ct);
     }
 
     private static TicketDto MapTicket(Ticket t) => new(
