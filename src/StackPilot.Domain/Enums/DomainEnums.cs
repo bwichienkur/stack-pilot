@@ -51,6 +51,14 @@ public enum TicketPriority
     Critical
 }
 
+public enum ConnectorCategory
+{
+    SourceCode,
+    Data,
+    CiCd,
+    Itsm
+}
+
 public enum ConnectorStatus
 {
     Pending,

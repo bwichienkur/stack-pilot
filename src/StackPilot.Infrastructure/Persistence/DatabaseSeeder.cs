@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using StackPilot.Application.Interfaces;
 using StackPilot.Domain.Entities;
 using StackPilot.Domain.Enums;
+using StackPilot.Infrastructure.Connectors;
 using StackPilot.Infrastructure.Persistence;
 
 namespace StackPilot.Infrastructure.Persistence;
@@ -65,53 +66,7 @@ public static class DatabaseSeeder
                 db.RolePermissions.Add(new RolePermission { RoleId = role.Id, PermissionId = perm.Id });
         }
 
-        var connectorDefs = new[]
-        {
-            new ConnectorDefinition
-            {
-                Type = "github_repository", Name = "GitHub Repository",
-                Description = "Connect to GitHub repositories for code scanning and indexing",
-                ConfigSchema = """{"type":"object","properties":{"owner":{"type":"string"},"repositories":{"type":"string"}}}""",
-                Capabilities = """["repository_scan","code_indexing","webhook"]"""
-            },
-            new ConnectorDefinition
-            {
-                Type = "github_actions", Name = "GitHub Actions",
-                Description = "Track CI/CD builds and deployments via GitHub Actions",
-                ConfigSchema = """{"type":"object","properties":{"owner":{"type":"string"},"repositories":{"type":"string"}}}""",
-                Capabilities = """["cicd_tracking","deployment_tracking","webhook"]"""
-            },
-            new ConnectorDefinition
-            {
-                Type = "sql_server", Name = "SQL Server",
-                Description = "Connect to SQL Server databases for schema discovery",
-                ConfigSchema = """{"type":"object","properties":{"server":{"type":"string"},"databases":{"type":"string"}}}""",
-                Capabilities = """["database_scan"]"""
-            },
-            new ConnectorDefinition
-            {
-                Type = "postgresql", Name = "PostgreSQL",
-                Description = "Connect to PostgreSQL databases for schema discovery",
-                ConfigSchema = """{"type":"object","properties":{"host":{"type":"string"},"port":{"type":"string"},"databases":{"type":"string"}}}""",
-                Capabilities = """["database_scan"]"""
-            },
-            new ConnectorDefinition
-            {
-                Type = "gitlab_repository", Name = "GitLab Repository",
-                Description = "Connect to GitLab projects for code scanning and CI/CD tracking",
-                ConfigSchema = """{"type":"object","properties":{"baseUrl":{"type":"string"},"group":{"type":"string"},"projects":{"type":"string"}}}""",
-                Capabilities = """["repository_scan","code_indexing","cicd_tracking"]"""
-            },
-            new ConnectorDefinition
-            {
-                Type = "jira", Name = "Jira",
-                Description = "Connect to Jira Cloud for project and issue tracking",
-                ConfigSchema = """{"type":"object","properties":{"baseUrl":{"type":"string"},"projects":{"type":"string"}}}""",
-                Capabilities = """["ticket_sync"]"""
-            }
-        };
-
-        db.ConnectorDefinitions.AddRange(connectorDefs);
+        db.ConnectorDefinitions.AddRange(ConnectorDefinitionCatalog.All.Select(d => ConnectorDefinitionCatalog.Create(d.Type)));
         await db.SaveChangesAsync();
     }
 
@@ -178,30 +133,29 @@ public static class DatabaseSeeder
         using var scope = services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-        if (!await db.ConnectorDefinitions.AnyAsync(d => d.Type == "gitlab_repository"))
+        var existing = await db.ConnectorDefinitions.ToListAsync();
+        var changed = false;
+
+        foreach (var template in ConnectorDefinitionCatalog.All)
         {
-            db.ConnectorDefinitions.Add(new ConnectorDefinition
+            var def = existing.FirstOrDefault(d => d.Type == template.Type);
+            if (def is null)
             {
-                Type = "gitlab_repository",
-                Name = "GitLab Repository",
-                Description = "Connect to GitLab projects for code scanning and CI/CD tracking",
-                ConfigSchema = """{"type":"object","properties":{"baseUrl":{"type":"string"},"group":{"type":"string"},"projects":{"type":"string"}}}""",
-                Capabilities = """["repository_scan","code_indexing","cicd_tracking"]"""
-            });
-            await db.SaveChangesAsync();
+                db.ConnectorDefinitions.Add(ConnectorDefinitionCatalog.Create(template.Type));
+                changed = true;
+            }
+            else if (def.Category != template.Category || def.Name != template.Name || def.Description != template.Description)
+            {
+                def.Category = template.Category;
+                def.Name = template.Name;
+                def.Description = template.Description;
+                def.ConfigSchema = template.ConfigSchema;
+                def.Capabilities = template.Capabilities;
+                changed = true;
+            }
         }
 
-        if (!await db.ConnectorDefinitions.AnyAsync(d => d.Type == "jira"))
-        {
-            db.ConnectorDefinitions.Add(new ConnectorDefinition
-            {
-                Type = "jira",
-                Name = "Jira",
-                Description = "Connect to Jira Cloud for project and issue tracking",
-                ConfigSchema = """{"type":"object","properties":{"baseUrl":{"type":"string"},"projects":{"type":"string"}}}""",
-                Capabilities = """["ticket_sync"]"""
-            });
+        if (changed)
             await db.SaveChangesAsync();
-        }
     }
 }

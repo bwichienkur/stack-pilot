@@ -9,7 +9,8 @@ public enum ConnectorCapabilities
     CiCdTracking = 4,
     WebhookReceive = 8,
     CodeIndexing = 16,
-    DeploymentTracking = 32
+    DeploymentTracking = 32,
+    TicketSync = 64
 }
 
 public class ConnectorContext

@@ -150,11 +150,19 @@ public class DatabaseScannerRouter : IDatabaseScanner
 {
     private readonly PostgreSqlDatabaseScanner _postgres;
     private readonly SqlServerDatabaseScanner _sqlServer;
+    private readonly MySqlDatabaseScanner _mysql;
+    private readonly MongoDbDatabaseScanner _mongodb;
 
-    public DatabaseScannerRouter(PostgreSqlDatabaseScanner postgres, SqlServerDatabaseScanner sqlServer)
+    public DatabaseScannerRouter(
+        PostgreSqlDatabaseScanner postgres,
+        SqlServerDatabaseScanner sqlServer,
+        MySqlDatabaseScanner mysql,
+        MongoDbDatabaseScanner mongodb)
     {
         _postgres = postgres;
         _sqlServer = sqlServer;
+        _mysql = mysql;
+        _mongodb = mongodb;
     }
 
     public Task<DatabaseScanResult> ScanAsync(ConnectorContext context, string databaseName, CancellationToken ct = default)
@@ -163,6 +171,8 @@ public class DatabaseScannerRouter : IDatabaseScanner
         {
             "postgresql" => (IDatabaseScanner)_postgres,
             "sql_server" => _sqlServer,
+            "mysql" => _mysql,
+            "mongodb" => _mongodb,
             _ => _postgres
         };
         return scanner.ScanAsync(context, databaseName, ct);
