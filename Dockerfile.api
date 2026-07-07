@@ -1,0 +1,17 @@
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+WORKDIR /src
+COPY StackPilot.sln ./
+COPY src/StackPilot.Api/StackPilot.Api.csproj src/StackPilot.Api/
+COPY src/StackPilot.Application/StackPilot.Application.csproj src/StackPilot.Application/
+COPY src/StackPilot.Domain/StackPilot.Domain.csproj src/StackPilot.Domain/
+COPY src/StackPilot.Infrastructure/StackPilot.Infrastructure.csproj src/StackPilot.Infrastructure/
+RUN dotnet restore src/StackPilot.Api/StackPilot.Api.csproj
+COPY src/ ./src/
+RUN dotnet publish src/StackPilot.Api/StackPilot.Api.csproj -c Release -o /app/publish --no-restore
+
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
+WORKDIR /app
+ENV ASPNETCORE_URLS=http://+:5000
+EXPOSE 5000
+COPY --from=build /app/publish .
+ENTRYPOINT ["dotnet", "StackPilot.Api.dll"]

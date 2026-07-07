@@ -1,0 +1,14 @@
+{
+  "name": "stackpilot-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "StackPilot Desktop — Enterprise Software Intelligence",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "frontend:dev": "cd ../frontend && npm run dev"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.1.1"
+  }
+}

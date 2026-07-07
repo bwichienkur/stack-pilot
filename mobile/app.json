@@ -1,0 +1,24 @@
+{
+  "expo": {
+    "name": "StackPilot",
+    "slug": "stackpilot",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "stackpilot",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#09090b"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "io.stackpilot.mobile"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#09090b"
+      },
+      "package": "io.stackpilot.mobile"
+    },
+    "plugins": ["expo-router"]
+  }
+}

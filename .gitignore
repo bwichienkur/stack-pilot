@@ -1,0 +1,46 @@
+## bin and obj
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+## .NET
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vs/
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+## Node
+node_modules/
+.next/
+out/
+dist/
+*.tsbuildinfo
+
+## Environment
+.env
+.env.local
+.env.*.local
+appsettings.Development.json
+
+## IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+## OS
+.DS_Store
+Thumbs.db
+
+## Docker
+pgdata/
+
+## Secrets
+*.pfx
+*.key
