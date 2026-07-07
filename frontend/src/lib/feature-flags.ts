@@ -21,5 +21,6 @@ export const NAV_FLAG_BY_PATH: Record<string, StubNavFlag> = {
 export function isNavEnabled(path: string, orgFlags?: Record<string, boolean> | null): boolean {
   const flag = NAV_FLAG_BY_PATH[path];
   if (!flag) return true;
-  return orgFlags?.[flag] === true;
+  if (!orgFlags) return true;
+  return orgFlags[flag] !== false;
 }

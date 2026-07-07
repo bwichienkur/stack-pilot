@@ -14,8 +14,10 @@ const NAV_ITEMS = [
   { href: "/tickets/new", label: "New Ticket" },
   { href: "/approvals", label: "Approvals" },
   { href: "/recommendations", label: "Recommendations" },
+  { href: "/uat", label: "UAT Queue" },
   { href: "/deployments", label: "Deployments" },
-  { href: "/audit", label: "Audit Logs" },
+  { href: "/releases", label: "Release Calendar" },
+  { href: "/docs", label: "Documentation" },
   { href: "/settings", label: "Settings" },
   { href: "/onboarding", label: "Onboarding" },
 ];

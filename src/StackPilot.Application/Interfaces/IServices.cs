@@ -60,6 +60,7 @@ public interface ITicketService
     Task<QaEvidenceDto> SubmitQaAsync(Guid ticketId, SubmitQaRequest request, Guid testerId, CancellationToken ct = default);
     Task<UatDecisionDto> SubmitUatAsync(Guid ticketId, SubmitUatRequest request, Guid approverId, CancellationToken ct = default);
     Task<ReleaseScheduleDto> ScheduleReleaseAsync(Guid ticketId, ScheduleReleaseRequest request, Guid userId, CancellationToken ct = default);
+    Task<List<ReleaseScheduleDetailDto>> GetScheduledReleasesAsync(Guid workspaceId, CancellationToken ct = default);
 }
 
 public interface IRecommendationService
