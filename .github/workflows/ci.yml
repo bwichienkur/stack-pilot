@@ -92,8 +92,7 @@ jobs:
       - name: Start frontend
         working-directory: frontend
         run: |
-          npm run build
-          npm run start &
+          npm run dev &
           for i in $(seq 1 45); do
             curl -sf http://localhost:3000/login | grep -q "Welcome to StackPilot" && break
             sleep 2
