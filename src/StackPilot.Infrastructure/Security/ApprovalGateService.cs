@@ -38,6 +38,25 @@ public class ApprovalGateService : IApprovalGateService
             .ToListAsync(ct);
     }
 
+    public async Task<List<ApprovalGateDto>> UpdateGatesAsync(Guid organizationId, List<UpdateApprovalGateRequest> gates, CancellationToken ct = default)
+    {
+        var gateIds = gates.Select(g => g.Id).ToList();
+        var existing = await _db.ApprovalGates
+            .Where(g => g.OrganizationId == organizationId && gateIds.Contains(g.Id))
+            .ToListAsync(ct);
+
+        foreach (var update in gates)
+        {
+            var gate = existing.FirstOrDefault(g => g.Id == update.Id);
+            if (gate is null) continue;
+            gate.IsEnabled = update.IsEnabled;
+            gate.SortOrder = update.SortOrder;
+        }
+
+        await _db.SaveChangesAsync(ct);
+        return await GetGatesAsync(organizationId, ct);
+    }
+
     public async Task<bool> AreAllGatesSatisfiedAsync(Guid ticketId, CancellationToken ct = default)
     {
         var pending = await GetPendingGateTypesAsync(ticketId, ct);

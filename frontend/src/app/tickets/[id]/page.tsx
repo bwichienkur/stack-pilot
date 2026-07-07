@@ -3,12 +3,14 @@
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { AppLayout } from "@/components/layout/sidebar";
-import { Card, CardContent, CardHeader, CardTitle, Badge, Button } from "@/components/ui";
+import { Card, CardContent, CardHeader, CardTitle, Badge, Button, Input } from "@/components/ui";
 import { PageSkeleton } from "@/components/page-skeleton";
 import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast";
-import { Bot, CheckCircle, XCircle, GitBranch, ExternalLink } from "lucide-react";
+import { useTicketWorkflowStates } from "@/lib/api-hooks";
+import { getFallbackWorkflowStates } from "@/lib/ticket-workflow";
+import { Bot, CheckCircle, XCircle, GitBranch, ExternalLink, Calendar, ChevronDown, ChevronUp, Target } from "lucide-react";
 
 interface TicketDetail {
   id: string;
@@ -71,6 +73,14 @@ export default function TicketDetailPage() {
   const [impact, setImpact] = useState<ImpactAnalysis | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("details");
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [scheduleDate, setScheduleDate] = useState("");
+  const [releaseWindow, setReleaseWindow] = useState("Maintenance");
+  const [scheduling, setScheduling] = useState(false);
+  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
+  const [sortByRisk, setSortByRisk] = useState(true);
+
+  const { data: workflowData } = useTicketWorkflowStates(id);
 
   useEffect(() => {
     if (!token) { router.push("/login"); return; }
@@ -139,6 +149,39 @@ export default function TicketDetailPage() {
     }
   };
 
+  const scheduleRelease = async () => {
+    if (!scheduleDate) {
+      showToast("Select a release date", "error");
+      return;
+    }
+    setScheduling(true);
+    try {
+      await api(`/tickets/${id}/schedule-release`, {
+        method: "POST",
+        body: JSON.stringify({
+          scheduledAt: new Date(scheduleDate).toISOString(),
+          releaseWindow,
+        }),
+      }, token, orgId, workspaceId);
+      showToast("Release scheduled", "success");
+      setShowScheduleModal(false);
+      loadTicket();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to schedule release", "error");
+    } finally {
+      setScheduling(false);
+    }
+  };
+
+  const toggleNodeExpand = (nodeId: string) => {
+    setExpandedNodes((prev) => {
+      const next = new Set(prev);
+      if (next.has(nodeId)) next.delete(nodeId);
+      else next.add(nodeId);
+      return next;
+    });
+  };
+
   if (!token) return null;
   if (loading) return <AppLayout><PageSkeleton rows={4} /></AppLayout>;
   if (!ticket) return <AppLayout><p className="text-zinc-400">Ticket not found</p></AppLayout>;
@@ -150,6 +193,14 @@ export default function TicketDetailPage() {
 
   const tabs = ["details", "requirements", "plan", "impact", "builds", "approvals", "activity"];
   const canApprove = ticket.status === "AwaitingApproval" || ticket.status === "RequirementsDrafted";
+  const canScheduleRelease = ticket.status === "UatAccepted";
+  const workflow = workflowData ?? getFallbackWorkflowStates(ticket.status);
+
+  const sortedImpactNodes = impact?.impactedNodes
+    ? [...impact.impactedNodes].sort((a, b) => sortByRisk ? (b.riskScore ?? 0) - (a.riskScore ?? 0) : a.name.localeCompare(b.name))
+    : [];
+
+  const highRiskCount = sortedImpactNodes.filter((n) => (n.riskScore ?? 0) >= 7).length;
 
   return (
     <AppLayout>
@@ -163,8 +214,21 @@ export default function TicketDetailPage() {
             </div>
             <h1 className="text-2xl font-bold text-zinc-100">{ticket.title}</h1>
             <p className="text-zinc-400 mt-1">{ticket.ticketType}</p>
+            {workflow.allowedTransitions.length > 0 && (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <span className="text-xs text-zinc-500">Allowed transitions:</span>
+                {workflow.allowedTransitions.map((s) => (
+                  <Badge key={s} variant="neutral">{s}</Badge>
+                ))}
+              </div>
+            )}
           </div>
           <div className="flex gap-2 flex-wrap">
+            {canScheduleRelease && (
+              <Button onClick={() => setShowScheduleModal(true)}>
+                <Calendar className="h-4 w-4" /> Schedule Release
+              </Button>
+            )}
             {!ticket.aiRequirementsJson && (
               <Button onClick={generateRequirements}><Bot className="h-4 w-4" /> Generate Requirements</Button>
             )}
@@ -251,23 +315,86 @@ export default function TicketDetailPage() {
 
         {activeTab === "impact" && (
           <Card>
-            <CardHeader><CardTitle>Impact Analysis</CardTitle></CardHeader>
+            <CardHeader>
+              <CardTitle className="flex items-center justify-between gap-4 flex-wrap">
+                <span className="flex items-center gap-2">
+                  <Target className="h-5 w-5 text-amber-400" />
+                  Blast Radius Analysis
+                </span>
+                {impact && impact.impactedNodes.length > 0 && (
+                  <div className="flex gap-2">
+                    <Button size="sm" variant={sortByRisk ? "default" : "secondary"} onClick={() => setSortByRisk(true)}>
+                      Sort by risk
+                    </Button>
+                    <Button size="sm" variant={!sortByRisk ? "default" : "secondary"} onClick={() => setSortByRisk(false)}>
+                      Sort by name
+                    </Button>
+                  </div>
+                )}
+              </CardTitle>
+            </CardHeader>
             <CardContent>
-              {impact && impact.impactedNodes.length > 0 ? (
-                <div className="space-y-3">
-                  <p className="text-sm text-zinc-400">{impact.impactedNodes.length} impacted graph nodes from requirement citations</p>
-                  {impact.impactedNodes.map((n) => (
-                    <div key={n.id} className="flex items-center justify-between py-2 border-b border-zinc-800">
-                      <span className="text-zinc-200">{n.name}</span>
-                      <div className="flex gap-2">
-                        <Badge variant="neutral">{n.nodeType}</Badge>
-                        {n.riskScore !== undefined && <Badge variant="warning">Risk {n.riskScore}</Badge>}
-                      </div>
+              {impact && sortedImpactNodes.length > 0 ? (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="rounded-lg bg-zinc-800/50 p-3 text-center">
+                      <p className="text-2xl font-bold text-zinc-100">{sortedImpactNodes.length}</p>
+                      <p className="text-xs text-zinc-500">Impacted nodes</p>
                     </div>
-                  ))}
+                    <div className="rounded-lg bg-amber-500/10 p-3 text-center border border-amber-500/20">
+                      <p className="text-2xl font-bold text-amber-400">{highRiskCount}</p>
+                      <p className="text-xs text-zinc-500">High risk (≥7)</p>
+                    </div>
+                    <div className="rounded-lg bg-zinc-800/50 p-3 text-center">
+                      <p className="text-2xl font-bold text-indigo-400">{impact.paths.length}</p>
+                      <p className="text-xs text-zinc-500">Dependency paths</p>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    {sortedImpactNodes.map((n) => {
+                      const expanded = expandedNodes.has(n.id);
+                      const relatedPaths = impact.paths.filter(
+                        (p) => p.sourceNodeId === n.id || p.targetNodeId === n.id
+                      );
+                      return (
+                        <div key={n.id} className="rounded-lg border border-zinc-800 overflow-hidden">
+                          <button
+                            type="button"
+                            onClick={() => toggleNodeExpand(n.id)}
+                            className="w-full flex items-center justify-between gap-3 px-4 py-3 hover:bg-zinc-800/30 transition-colors text-left"
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              {expanded ? <ChevronUp className="h-4 w-4 text-zinc-500 flex-shrink-0" /> : <ChevronDown className="h-4 w-4 text-zinc-500 flex-shrink-0" />}
+                              <span className="text-zinc-200 truncate">{n.name}</span>
+                            </div>
+                            <div className="flex gap-2 flex-shrink-0">
+                              <Badge variant="neutral">{n.nodeType}</Badge>
+                              {n.riskScore !== undefined && (
+                                <Badge variant={n.riskScore >= 7 ? "danger" : n.riskScore >= 4 ? "warning" : "success"}>
+                                  Risk {n.riskScore}
+                                </Badge>
+                              )}
+                            </div>
+                          </button>
+                          {expanded && relatedPaths.length > 0 && (
+                            <div className="px-4 pb-3 pt-1 border-t border-zinc-800 bg-zinc-950/50">
+                              <p className="text-xs text-zinc-500 mb-2">Connected paths</p>
+                              <ul className="space-y-1">
+                                {relatedPaths.map((p, i) => (
+                                  <li key={i} className="text-xs text-zinc-400 font-mono">
+                                    {p.edgeType}: {p.sourceNodeId.slice(0, 8)}… → {p.targetNodeId.slice(0, 8)}…
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               ) : (
-                <p className="text-zinc-400">Generate requirements with graph citations to see impact analysis.</p>
+                <p className="text-zinc-400">Generate requirements with graph citations to see blast-radius analysis.</p>
               )}
             </CardContent>
           </Card>
@@ -348,6 +475,37 @@ export default function TicketDetailPage() {
           </Card>
         )}
       </div>
+
+      {showScheduleModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setShowScheduleModal(false)}>
+          <Card className="w-full max-w-md p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-lg font-semibold text-zinc-100">Schedule Production Release</h2>
+            <p className="text-sm text-zinc-400">Set the deployment window for ticket #{ticket.ticketNumber} after UAT acceptance.</p>
+            <div>
+              <label className="text-sm text-zinc-400 mb-1 block">Scheduled date & time</label>
+              <Input type="datetime-local" value={scheduleDate} onChange={(e) => setScheduleDate(e.target.value)} />
+            </div>
+            <div>
+              <label className="text-sm text-zinc-400 mb-1 block">Release window</label>
+              <select
+                value={releaseWindow}
+                onChange={(e) => setReleaseWindow(e.target.value)}
+                className="flex h-10 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm text-zinc-100"
+              >
+                {["Maintenance", "Business Hours", "Off Hours", "Emergency"].map((w) => (
+                  <option key={w} value={w}>{w}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button variant="secondary" onClick={() => setShowScheduleModal(false)}>Cancel</Button>
+              <Button onClick={scheduleRelease} disabled={scheduling}>
+                {scheduling ? "Scheduling..." : "Schedule Release"}
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
     </AppLayout>
   );
 }

@@ -9,52 +9,31 @@ import { EmptyState } from "@/components/empty-state";
 import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast";
+import { useRecommendations } from "@/lib/api-hooks";
 import { Sparkles } from "lucide-react";
-
-interface Recommendation {
-  id: string;
-  type: string;
-  summary: string;
-  riskLevel: string;
-  confidenceScore?: number;
-  status: string;
-  createdAt: string;
-}
 
 export default function RecommendationsPage() {
   const { token, orgId, workspaceId } = useAuth();
   const router = useRouter();
   const { showToast } = useToast();
-  const [items, setItems] = useState<Recommendation[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data, isLoading, error, refetch } = useRecommendations();
   const [generating, setGenerating] = useState(false);
 
-  useEffect(() => {
-    if (!token) { router.push("/login"); return; }
-    if (workspaceId) load();
-  }, [token, workspaceId]);
+  const items = data?.items ?? [];
 
-  const load = async () => {
-    try {
-      const data = await api<{ items: Recommendation[] }>(
-        `/workspaces/${workspaceId}/recommendations?page=1&pageSize=50`, {}, token, orgId, workspaceId
-      );
-      setItems(data.items);
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : "Failed to load recommendations", "error");
-    } finally {
-      setLoading(false);
-    }
-  };
+  useEffect(() => {
+    if (!token) router.push("/login");
+  }, [token, router]);
 
   const generate = async () => {
+    if (!workspaceId) return;
     setGenerating(true);
     try {
-      const created = await api<Recommendation[]>(
+      const created = await api<unknown[]>(
         `/workspaces/${workspaceId}/recommendations/generate`, { method: "POST" }, token, orgId, workspaceId
       );
       showToast(`Generated ${created.length} recommendation(s)`, "success");
-      load();
+      refetch();
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Generation failed", "error");
     } finally {
@@ -77,7 +56,9 @@ export default function RecommendationsPage() {
           </Button>
         </div>
 
-        {loading ? <PageSkeleton rows={4} /> : items.length === 0 ? (
+        {error && <p className="text-sm text-red-400">{error instanceof Error ? error.message : "Failed to load"}</p>}
+
+        {isLoading ? <PageSkeleton rows={4} /> : items.length === 0 ? (
           <EmptyState
             title="No recommendations yet"
             description="Scan repositories to build risk scores, then generate AI recommendations."

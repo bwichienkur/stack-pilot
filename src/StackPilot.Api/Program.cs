@@ -127,6 +127,14 @@ if (!app.Environment.IsEnvironment("Testing"))
 if (Environment.GetEnvironmentVariable("DEMO_SEED") == "true")
     await DatabaseSeeder.SeedDemoDataAsync(app.Services);
 
+if (!app.Environment.IsEnvironment("Testing"))
+{
+    RecurringJob.AddOrUpdate<DataRetentionJob>(
+        "data-retention-purge",
+        job => job.ExecuteAsync(CancellationToken.None),
+        Cron.Daily(3));
+}
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();

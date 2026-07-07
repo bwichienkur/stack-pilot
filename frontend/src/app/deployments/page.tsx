@@ -1,47 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { AppLayout } from "@/components/layout/sidebar";
 import { Card, Badge } from "@/components/ui";
 import { PageSkeleton } from "@/components/page-skeleton";
 import { EmptyState } from "@/components/empty-state";
 import { useAuth } from "@/lib/auth-context";
-import { api } from "@/lib/utils";
-import { useToast } from "@/components/ui/toast";
-
-interface BuildRun {
-  id: string;
-  status: string;
-  conclusion?: string;
-  logsUrl?: string;
-  pullRequestUrl?: string;
-  startedAt?: string;
-  completedAt?: string;
-}
+import { useDeployments } from "@/lib/api-hooks";
 
 export default function DeploymentsPage() {
-  const { token, orgId, workspaceId } = useAuth();
+  const { token } = useAuth();
   const router = useRouter();
-  const { showToast } = useToast();
-  const [runs, setRuns] = useState<BuildRun[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: runs = [], isLoading, error } = useDeployments();
 
   useEffect(() => {
-    if (!token) { router.push("/login"); return; }
-    if (workspaceId) load();
-  }, [token, workspaceId]);
-
-  const load = async () => {
-    try {
-      const data = await api<BuildRun[]>(`/workspaces/${workspaceId}/build-runs`, {}, token, orgId, workspaceId);
-      setRuns(data);
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : "Failed to load build runs", "error");
-    } finally {
-      setLoading(false);
-    }
-  };
+    if (!token) router.push("/login");
+  }, [token, router]);
 
   if (!token) return null;
 
@@ -53,7 +28,9 @@ export default function DeploymentsPage() {
           <p className="text-zinc-400 mt-1">CI/CD build runs from GitHub Actions webhooks</p>
         </div>
 
-        {loading ? <PageSkeleton rows={4} /> : runs.length === 0 ? (
+        {error && <p className="text-sm text-red-400">{error instanceof Error ? error.message : "Failed to load"}</p>}
+
+        {isLoading ? <PageSkeleton rows={4} /> : runs.length === 0 ? (
           <EmptyState
             title="No build runs yet"
             description="Configure a GitHub Actions connector and point webhooks to POST /api/v1/webhooks/github"

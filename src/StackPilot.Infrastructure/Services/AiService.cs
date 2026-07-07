@@ -194,6 +194,35 @@ public class AiService : IAiService
         await _db.SaveChangesAsync(ct);
         return result.Content;
     }
+
+    public async Task<AiCodeSuggestionDto> GenerateCodeAsync(Guid ticketId, CancellationToken ct = default)
+    {
+        var ticket = await _db.Tickets.FindAsync([ticketId], ct)
+            ?? throw new KeyNotFoundException("Ticket not found");
+
+        if (ticket.Status is not (TicketStatus.Approved or TicketStatus.ImplementationInProgress))
+            throw new InvalidOperationException("Ticket must be approved before generating code");
+
+        await _planLimits.EnsureCanUseAiAsync(ticket.OrganizationId, ct: ct);
+
+        var suggestedCode = $$"""
+            // StackPilot AI scaffold for ticket #{{ticket.TicketNumber}}: {{ticket.Title}}
+            // TODO: Replace with production implementation
+
+            public class Ticket{{ticket.TicketNumber}}Feature
+            {
+                public void Execute()
+                {
+                    // Implementation based on: {{ticket.Description ?? "requirements pending"}}
+                }
+            }
+            """;
+
+        var actionId = await _governance.RecordActionAsync(
+            "generate_code", ticket.Title, suggestedCode, "scaffold", 500, true, ct);
+
+        return new AiCodeSuggestionDto(actionId, suggestedCode, "csharp", $"Scaffold for {ticket.Title}");
+    }
 }
 
 public class AiGovernanceService : IAiGovernanceService

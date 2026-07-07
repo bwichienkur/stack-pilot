@@ -5,11 +5,11 @@ using StackPilot.Infrastructure.External;
 
 namespace StackPilot.Infrastructure.Connectors;
 
-public partial class RepositoryScanner : IRepositoryScanner
+public partial class GitHubRepositoryScanner : IRepositoryScanner
 {
     private readonly IGitHubApiClient _github;
 
-    public RepositoryScanner(IGitHubApiClient github) => _github = github;
+    public GitHubRepositoryScanner(IGitHubApiClient github) => _github = github;
 
     public async Task<RepositoryScanResult> ScanAsync(ConnectorContext context, string repositoryName, CancellationToken ct = default)
     {

@@ -41,7 +41,7 @@ Deep code scanning runs today for **GitHub** and **GitLab**; other source connec
 | Desktop (Tauri) / Mobile (Expo) | Scaffolds with README |
 | Bidirectional Jira/ServiceNow push-back | Import-only today |
 | Deep repo scan for Azure DevOps / Bitbucket | Inventory sync only |
-| Billing, teams UI, connector marketplace | Pricing page + Stripe scaffold; enforcement phase 2 |
+| Billing, teams UI, connector marketplace | Pricing page + Stripe Checkout; limit enforcement phase 2 shipped |
 | Kanban drag-and-drop | Status columns only |
 
 ## Quick Start

@@ -1,10 +1,13 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using StackPilot.Application.Common;
+using StackPilot.Application.Connectors;
 using StackPilot.Application.DTOs;
 using StackPilot.Application.Interfaces;
+using StackPilot.Application.Workflow;
 using StackPilot.Domain.Entities;
 using StackPilot.Domain.Enums;
+using StackPilot.Infrastructure.Connectors;
 using StackPilot.Infrastructure.Persistence;
 
 namespace StackPilot.Infrastructure.Services;
@@ -18,8 +21,11 @@ public class TicketService : ITicketService
     private readonly IPermissionValidator _permissions;
     private readonly INotificationService _notifications;
     private readonly IApprovalGateService _approvalGates;
+    private readonly IOutboundWebhookService _outboundWebhooks;
+    private readonly JiraConnector _jiraConnector;
+    private readonly ICredentialEncryptionService _encryption;
 
-    public TicketService(AppDbContext db, ITenantContext tenant, IAuditService audit, IBackgroundJobService jobs, IPermissionValidator permissions, INotificationService notifications, IApprovalGateService approvalGates)
+    public TicketService(AppDbContext db, ITenantContext tenant, IAuditService audit, IBackgroundJobService jobs, IPermissionValidator permissions, INotificationService notifications, IApprovalGateService approvalGates, IOutboundWebhookService outboundWebhooks, JiraConnector jiraConnector, ICredentialEncryptionService encryption)
     {
         _db = db;
         _tenant = tenant;
@@ -28,6 +34,9 @@ public class TicketService : ITicketService
         _permissions = permissions;
         _notifications = notifications;
         _approvalGates = approvalGates;
+        _outboundWebhooks = outboundWebhooks;
+        _jiraConnector = jiraConnector;
+        _encryption = encryption;
     }
 
     public async Task<PagedResult<TicketDto>> GetByWorkspaceAsync(Guid workspaceId, PagedRequest request, CancellationToken ct = default)
@@ -102,7 +111,16 @@ public class TicketService : ITicketService
 
         if (request.Title is not null) ticket.Title = request.Title;
         if (request.Description is not null) ticket.Description = request.Description;
-        if (request.Status is not null) ticket.Status = Enum.Parse<TicketStatus>(request.Status, true);
+        if (request.Status is not null)
+        {
+            var newStatus = Enum.Parse<TicketStatus>(request.Status, true);
+            TicketStateMachine.ValidateTransition(ticket.Status, newStatus);
+            var previousStatus = ticket.Status;
+            ticket.Status = newStatus;
+            await PushJiraStatusIfLinkedAsync(ticket, ct);
+            await _outboundWebhooks.DispatchAsync("ticket.status_changed", ticket.OrganizationId,
+                new { ticketId = ticket.Id, from = previousStatus.ToString(), to = newStatus.ToString() }, ct);
+        }
         if (request.Priority is not null) ticket.Priority = Enum.Parse<TicketPriority>(request.Priority, true);
         if (request.AssigneeId.HasValue) ticket.AssigneeId = request.AssigneeId;
 
@@ -250,6 +268,9 @@ public class TicketService : ITicketService
         var ticket = await _db.Tickets.FindAsync([ticketId], ct)
             ?? throw new KeyNotFoundException("Ticket not found");
 
+        if (ticket.Status != TicketStatus.UatAccepted)
+            throw new InvalidOperationException("Ticket must have UAT accepted before scheduling a release");
+
         var release = new ReleaseSchedule
         {
             OrganizationId = ticket.OrganizationId,
@@ -278,6 +299,82 @@ public class TicketService : ITicketService
                 r.Id, r.TicketId, r.Ticket.TicketNumber, r.Ticket.Title, r.Ticket.Status.ToString(),
                 r.ScheduledAt, r.ReleaseWindow, r.Status.ToString()))
             .ToListAsync(ct);
+    }
+
+    public async Task<TicketWorkflowDto> GetWorkflowAsync(Guid ticketId, CancellationToken ct = default)
+    {
+        var ticket = await _db.Tickets.AsNoTracking().FirstOrDefaultAsync(t => t.Id == ticketId, ct)
+            ?? throw new KeyNotFoundException("Ticket not found");
+
+        return new TicketWorkflowDto(ticket.Status.ToString(), TicketStateMachine.GetAllowedNextStatuses(ticket.Status));
+    }
+
+    public async Task<ReleaseScheduleDto> UpdateReleaseAsync(Guid ticketId, Guid releaseId, UpdateReleaseRequest request, Guid userId, CancellationToken ct = default)
+    {
+        var release = await _db.ReleaseSchedules
+            .Include(r => r.Ticket)
+            .FirstOrDefaultAsync(r => r.Id == releaseId && r.TicketId == ticketId, ct)
+            ?? throw new KeyNotFoundException("Release schedule not found");
+
+        var ticket = release.Ticket;
+        var action = request.Action.ToLowerInvariant();
+
+        switch (action)
+        {
+            case "deploy":
+                release.Status = ReleaseStatus.Deployed;
+                release.DeployedAt = DateTime.UtcNow;
+                TicketStateMachine.ValidateTransition(ticket.Status, TicketStatus.DeployedToProduction);
+                ticket.Status = TicketStatus.DeployedToProduction;
+                break;
+            case "verify":
+                release.Status = ReleaseStatus.Verified;
+                release.VerifiedAt = DateTime.UtcNow;
+                TicketStateMachine.ValidateTransition(ticket.Status, TicketStatus.Closed);
+                ticket.Status = TicketStatus.Closed;
+                break;
+            case "rollback":
+                release.Status = ReleaseStatus.RolledBack;
+                ticket.Status = TicketStatus.ScheduledForProduction;
+                break;
+            default:
+                throw new ArgumentException($"Unknown release action: {request.Action}");
+        }
+
+        await _db.SaveChangesAsync(ct);
+        await _audit.LogAsync($"release.{action}", "ReleaseSchedule", release.Id, ct: ct);
+        await _outboundWebhooks.DispatchAsync($"release.{action}", ticket.OrganizationId,
+            new { ticketId, releaseId = release.Id, action }, ct);
+
+        return new ReleaseScheduleDto(release.Id, release.TicketId, release.ScheduledAt, release.ReleaseWindow, release.Status.ToString());
+    }
+
+    private async Task PushJiraStatusIfLinkedAsync(Ticket ticket, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(ticket.ExternalReference)) return;
+
+        var jiraConnector = await _db.ConnectorInstances
+            .Include(c => c.Definition)
+            .Include(c => c.Credentials)
+            .FirstOrDefaultAsync(c => c.WorkspaceId == ticket.WorkspaceId && c.Definition.Type == "jira", ct);
+
+        if (jiraConnector is null) return;
+
+        var credentials = jiraConnector.Credentials.ToDictionary(
+            c => c.CredentialType,
+            c => _encryption.Decrypt(c.EncryptedValue, jiraConnector.OrganizationId));
+
+        var context = new ConnectorContext
+        {
+            OrganizationId = jiraConnector.OrganizationId,
+            WorkspaceId = jiraConnector.WorkspaceId,
+            ConnectorInstanceId = jiraConnector.Id,
+            ConnectorType = "jira",
+            ConfigJson = jiraConnector.ConfigJson,
+            Credentials = credentials
+        };
+
+        await _jiraConnector.PushTicketStatusAsync(context, ticket.ExternalReference, ticket.Status.ToString(), ct);
     }
 
     private static TicketDto MapTicket(Ticket t) => new(

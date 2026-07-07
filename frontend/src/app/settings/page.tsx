@@ -10,6 +10,8 @@ import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast";
 import { STUB_NAV_FLAGS } from "@/lib/feature-flags";
+import { useApprovalGates, useUpdateApprovalGates, type ApprovalGate, type OrganizationInvite, type OutboundWebhook, type SamlConfig } from "@/lib/api-hooks";
+import { Trash2, UserPlus } from "lucide-react";
 
 interface Settings {
   id: string;
@@ -40,6 +42,7 @@ interface OrganizationBilling {
     maxWorkspaces: number;
     maxConnectors: number;
     monthlyAiTokenBudget: number;
+    samlSso?: boolean;
   };
   usage: {
     seatCount: number;
@@ -77,6 +80,22 @@ export default function SettingsPage() {
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [portalLoading, setPortalLoading] = useState(false);
   const [promoCode, setPromoCode] = useState("DESIGNPARTNER20");
+  const [gates, setGates] = useState<ApprovalGate[]>([]);
+  const [pendingInvites, setPendingInvites] = useState<OrganizationInvite[]>([]);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState("Member");
+  const [webhooks, setWebhooks] = useState<OutboundWebhook[]>([]);
+  const [webhookUrl, setWebhookUrl] = useState("");
+  const [webhookEvents, setWebhookEvents] = useState("ticket.approved,ticket.released");
+  const [samlConfig, setSamlConfig] = useState<SamlConfig>({ enabled: false });
+  const [samlSaving, setSamlSaving] = useState(false);
+
+  const { data: approvalGates } = useApprovalGates();
+  const updateGates = useUpdateApprovalGates();
+
+  useEffect(() => {
+    if (approvalGates) setGates(approvalGates);
+  }, [approvalGates]);
 
   useEffect(() => {
     if (!token) { router.push("/login"); return; }
@@ -94,10 +113,13 @@ export default function SettingsPage() {
 
   const load = async () => {
     try {
-      const [s, m, b] = await Promise.all([
+      const [s, m, b, invites, hooks, saml] = await Promise.all([
         api<Settings>(`/organizations/${orgId}/settings`, {}, token, orgId),
         api<Member[]>(`/organizations/${orgId}/members`, {}, token, orgId).catch(() => []),
         api<OrganizationBilling>(`/billing/organizations/${orgId}`, {}, token, orgId).catch(() => null),
+        api<OrganizationInvite[]>(`/organizations/${orgId}/invites`, {}, token, orgId).catch(() => []),
+        api<OutboundWebhook[]>(`/organizations/${orgId}/webhooks`, {}, token, orgId).catch(() => []),
+        api<SamlConfig>(`/organizations/${orgId}/saml`, {}, token, orgId).catch(() => ({ enabled: false })),
       ]);
       setSettings(s);
       setBilling(b);
@@ -105,12 +127,110 @@ export default function SettingsPage() {
       setFlags(s.featureFlags || {});
       setSlackWebhook(s.slackWebhookUrl || "");
       setMembers(m);
+      setPendingInvites(invites);
+      setWebhooks(hooks);
+      setSamlConfig(saml);
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Failed to load settings", "error");
     } finally {
       setLoading(false);
     }
   };
+
+  const saveApprovalGates = async () => {
+    try {
+      const updated = await updateGates.mutateAsync(
+        gates.map((g) => ({ id: g.id, isEnabled: g.isEnabled, sortOrder: g.sortOrder }))
+      );
+      setGates(updated);
+      showToast("Approval gates saved", "success");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to save approval gates", "error");
+    }
+  };
+
+  const sendInvite = async () => {
+    if (!inviteEmail.trim()) return;
+    try {
+      await api(`/organizations/${orgId}/invites`, {
+        method: "POST",
+        body: JSON.stringify({ email: inviteEmail.trim(), roleName: inviteRole }),
+      }, token, orgId);
+      showToast("Invite sent", "success");
+      setInviteEmail("");
+      await load();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to send invite", "error");
+    }
+  };
+
+  const revokeInvite = async (inviteId: string) => {
+    try {
+      await api(`/organizations/${orgId}/invites/${inviteId}`, { method: "DELETE" }, token, orgId);
+      showToast("Invite revoked", "success");
+      setPendingInvites((prev) => prev.filter((i) => i.id !== inviteId));
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to revoke invite", "error");
+    }
+  };
+
+  const createWebhook = async () => {
+    if (!webhookUrl.trim()) return;
+    try {
+      const created = await api<OutboundWebhook>(`/organizations/${orgId}/webhooks`, {
+        method: "POST",
+        body: JSON.stringify({
+          url: webhookUrl.trim(),
+          events: webhookEvents.split(",").map((e) => e.trim()).filter(Boolean),
+        }),
+      }, token, orgId);
+      setWebhooks((prev) => [...prev, created]);
+      setWebhookUrl("");
+      showToast("Webhook created", "success");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to create webhook", "error");
+    }
+  };
+
+  const deleteWebhook = async (webhookId: string) => {
+    try {
+      await api(`/organizations/${orgId}/webhooks/${webhookId}`, { method: "DELETE" }, token, orgId);
+      setWebhooks((prev) => prev.filter((w) => w.id !== webhookId));
+      showToast("Webhook deleted", "success");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to delete webhook", "error");
+    }
+  };
+
+  const toggleWebhook = async (webhook: OutboundWebhook) => {
+    try {
+      const updated = await api<OutboundWebhook>(`/organizations/${orgId}/webhooks/${webhook.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ url: webhook.url, events: webhook.events, isActive: !webhook.isActive }),
+      }, token, orgId);
+      setWebhooks((prev) => prev.map((w) => (w.id === webhook.id ? updated : w)));
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to update webhook", "error");
+    }
+  };
+
+  const saveSaml = async () => {
+    setSamlSaving(true);
+    try {
+      const updated = await api<SamlConfig>(`/organizations/${orgId}/saml`, {
+        method: "PUT",
+        body: JSON.stringify(samlConfig),
+      }, token, orgId);
+      setSamlConfig(updated);
+      showToast("SAML configuration saved", "success");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to save SAML config", "error");
+    } finally {
+      setSamlSaving(false);
+    }
+  };
+
+  const isProfessionalPlan = billing?.plan === "Professional" || billing?.plan === "Enterprise" || billing?.limits?.samlSso;
 
   const startCheckout = async (plan: string) => {
     if (!orgId || plan === "Trial" || plan === "Enterprise") return;
@@ -298,6 +418,139 @@ export default function SettingsPage() {
                 ))}
               </div>
             </Card>
+
+            <Card className="p-6 space-y-4">
+              <h2 className="text-lg font-semibold text-zinc-100">Approval Gates</h2>
+              <p className="text-sm text-zinc-400">Configure which approval gates are required before implementation.</p>
+              {gates.length === 0 ? (
+                <p className="text-sm text-zinc-500">No approval gates configured.</p>
+              ) : (
+                <div className="space-y-3">
+                  {gates.map((gate) => (
+                    <label key={gate.id} className="flex items-center justify-between gap-4 py-2 border-b border-zinc-800 last:border-0">
+                      <div>
+                        <span className="text-sm text-zinc-300">{gate.gateType}</span>
+                        <p className="text-xs text-zinc-500">{gate.requiredPermission}</p>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={gate.isEnabled}
+                        onChange={(e) => setGates((prev) => prev.map((g) => g.id === gate.id ? { ...g, isEnabled: e.target.checked } : g))}
+                        className="h-4 w-4 rounded border-zinc-600 bg-zinc-900 text-indigo-500"
+                      />
+                    </label>
+                  ))}
+                </div>
+              )}
+              <Button size="sm" variant="secondary" onClick={saveApprovalGates} disabled={updateGates.isPending}>
+                {updateGates.isPending ? "Saving..." : "Save approval gates"}
+              </Button>
+            </Card>
+
+            <Card className="p-6 space-y-4">
+              <h2 className="text-lg font-semibold text-zinc-100">Member Invites</h2>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <Input
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  placeholder="colleague@company.com"
+                  type="email"
+                />
+                <select
+                  value={inviteRole}
+                  onChange={(e) => setInviteRole(e.target.value)}
+                  className="h-10 rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm text-zinc-100"
+                >
+                  {["Member", "Developer", "Client Admin"].map((r) => (
+                    <option key={r} value={r}>{r}</option>
+                  ))}
+                </select>
+                <Button onClick={sendInvite}><UserPlus className="h-4 w-4" /> Invite</Button>
+              </div>
+              {pendingInvites.length > 0 && (
+                <div className="space-y-2 pt-2">
+                  <p className="text-xs text-zinc-500 uppercase tracking-wide">Pending invites</p>
+                  {pendingInvites.map((inv) => (
+                    <div key={inv.id} className="flex items-center justify-between text-sm py-2 border-b border-zinc-800 last:border-0">
+                      <div>
+                        <p className="text-zinc-200">{inv.email}</p>
+                        <p className="text-xs text-zinc-500">{inv.roleName} · expires {new Date(inv.expiresAt).toLocaleDateString()}</p>
+                      </div>
+                      <Button size="sm" variant="ghost" onClick={() => revokeInvite(inv.id)}>
+                        <Trash2 className="h-4 w-4 text-red-400" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+
+            <Card className="p-6 space-y-4">
+              <h2 className="text-lg font-semibold text-zinc-100">Outbound Webhooks</h2>
+              <p className="text-sm text-zinc-400">Receive HTTP callbacks when key events occur in your organization.</p>
+              <Input value={webhookUrl} onChange={(e) => setWebhookUrl(e.target.value)} placeholder="https://your-app.com/webhooks/stackpilot" />
+              <Input value={webhookEvents} onChange={(e) => setWebhookEvents(e.target.value)} placeholder="ticket.approved,ticket.released" />
+              <Button size="sm" onClick={createWebhook}>Add webhook</Button>
+              {webhooks.length > 0 && (
+                <div className="space-y-2 pt-2">
+                  {webhooks.map((wh) => (
+                    <div key={wh.id} className="flex items-center justify-between gap-4 py-2 border-b border-zinc-800 last:border-0 text-sm">
+                      <div className="min-w-0">
+                        <p className="text-zinc-200 truncate">{wh.url}</p>
+                        <p className="text-xs text-zinc-500">{wh.events.join(", ")}</p>
+                      </div>
+                      <div className="flex gap-2 flex-shrink-0">
+                        <Button size="sm" variant="secondary" onClick={() => toggleWebhook(wh)}>
+                          {wh.isActive ? "Active" : "Paused"}
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => deleteWebhook(wh.id)}>
+                          <Trash2 className="h-4 w-4 text-red-400" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+
+            {isProfessionalPlan && (
+              <Card className="p-6 space-y-4">
+                <h2 className="text-lg font-semibold text-zinc-100">SAML SSO</h2>
+                <p className="text-sm text-zinc-400">Configure SAML 2.0 single sign-on for your identity provider.</p>
+                <label className="flex items-center gap-3 text-sm text-zinc-300">
+                  <input
+                    type="checkbox"
+                    checked={samlConfig.enabled}
+                    onChange={(e) => setSamlConfig((c) => ({ ...c, enabled: e.target.checked }))}
+                    className="h-4 w-4 rounded border-zinc-600 bg-zinc-900 text-indigo-500"
+                  />
+                  Enable SAML SSO
+                </label>
+                <div>
+                  <label className="text-sm text-zinc-400 mb-1 block">Entity ID</label>
+                  <Input value={samlConfig.entityId || ""} onChange={(e) => setSamlConfig((c) => ({ ...c, entityId: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="text-sm text-zinc-400 mb-1 block">IdP Metadata URL</label>
+                  <Input value={samlConfig.idpMetadataUrl || ""} onChange={(e) => setSamlConfig((c) => ({ ...c, idpMetadataUrl: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="text-sm text-zinc-400 mb-1 block">IdP Certificate (PEM)</label>
+                  <textarea
+                    value={samlConfig.idpCertificate || ""}
+                    onChange={(e) => setSamlConfig((c) => ({ ...c, idpCertificate: e.target.value }))}
+                    rows={4}
+                    className="flex w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 font-mono"
+                  />
+                </div>
+                {samlConfig.metadataUrl && (
+                  <p className="text-xs text-zinc-500">SP metadata: {samlConfig.metadataUrl}</p>
+                )}
+                <Button size="sm" onClick={saveSaml} disabled={samlSaving}>
+                  {samlSaving ? "Saving..." : "Save SAML config"}
+                </Button>
+              </Card>
+            )}
 
             <Card className="p-6 space-y-4">
               <h2 className="text-lg font-semibold text-zinc-100">Notifications</h2>

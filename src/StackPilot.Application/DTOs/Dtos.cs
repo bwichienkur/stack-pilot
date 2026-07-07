@@ -14,6 +14,10 @@ public record CreateOrganizationRequest(string Name, string Slug);
 public record OrganizationSettingsDto(Guid Id, string Name, string Slug, string Plan, Dictionary<string, bool> FeatureFlags, string? SlackWebhookUrl = null);
 public record UpdateOrganizationSettingsRequest(string? Name, Dictionary<string, bool>? FeatureFlags, string? SlackWebhookUrl = null);
 public record OrganizationMemberDto(Guid UserId, string Email, string? FirstName, string? LastName, string RoleName, DateTime JoinedAt);
+public record OrganizationInviteDto(Guid Id, string Email, string RoleName, DateTime ExpiresAt, DateTime? AcceptedAt, DateTime CreatedAt);
+public record CreateInviteRequest(string Email, Guid RoleId);
+public record AcceptInviteRequest(string Token);
+public record UpdateMemberRoleRequest(Guid UserId, Guid RoleId);
 public record WorkspaceDto(Guid Id, Guid OrganizationId, string Name, string Slug, string? Description, bool IsActive);
 public record CreateWorkspaceRequest(string Name, string Slug, string? Description);
 
@@ -71,10 +75,31 @@ public record AiRequirementsResult(string BusinessSummary, string FunctionalRequ
 public record AuditLogDto(Guid Id, string Action, string? EntityType, Guid? EntityId, Guid? UserId, string? DetailsJson, DateTime CreatedAt);
 public record BuildRunDto(Guid Id, Guid? TicketId, string Status, string? Conclusion, string? LogsUrl, string? PullRequestUrl, DateTime? StartedAt, DateTime? CompletedAt);
 public record ApprovalGateDto(Guid Id, string GateType, string RequiredPermission, int SortOrder, bool IsEnabled);
+public record UpdateApprovalGateRequest(Guid Id, bool IsEnabled, int SortOrder);
+
+public record TicketWorkflowDto(string CurrentStatus, IReadOnlyList<string> AllowedNextStatuses);
+public record UpdateReleaseRequest(string Action);
 
 public record DashboardStatsDto(
     int ApplicationCount, int RepositoryCount, int DatabaseCount, int OpenTickets,
-    int PendingApprovals, int OpenRecommendations, decimal AverageRiskScore, int ActiveConnectors);
+    int PendingApprovals, int OpenRecommendations, decimal AverageRiskScore, int ActiveConnectors,
+    int UnhealthyConnectors, int ReleasesThisWeek, int HighRiskCount, int PendingQa, int PendingUat);
+
+public record ConnectorHealthSummaryDto(int Total, int Healthy, int Degraded, int Unhealthy, int Unknown);
+
+public record OutboundWebhookSubscriptionDto(Guid Id, string Url, string[] Events, bool IsActive, DateTime CreatedAt);
+public record CreateOutboundWebhookRequest(string Url, string[] Events);
+
+public record AiCodeSuggestionDto(Guid AiActionId, string SuggestedCode, string Language, string Summary);
+
+public record AiUsageWithOverageDto(
+    long TokensUsedThisMonth, long MonthlyBudget, long OverageTokens, bool WithinGracePeriod, bool IsOverBudget);
+
+public record AdminOrganizationSummaryDto(Guid Id, string Name, string Slug, string Plan, bool IsActive, int MemberCount, DateTime CreatedAt);
+public record AdminOrganizationDetailDto(
+    Guid Id, string Name, string Slug, string Plan, string SubscriptionStatus, bool IsActive,
+    DateTime? TrialEndsAt, int MemberCount, int WorkspaceCount, int ConnectorCount, DateTime CreatedAt);
+public record OverridePlanRequest(string Plan);
 
 public record RepositoryScanDto(Guid Id, string RepositoryName, string Status, DateTime? CompletedAt);
 

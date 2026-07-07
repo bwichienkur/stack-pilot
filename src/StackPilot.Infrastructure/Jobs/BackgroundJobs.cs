@@ -447,3 +447,23 @@ public class GenerateRequirementsJob
     }
 }
 
+public class DataRetentionJob
+{
+    private readonly IServiceScopeFactory _scopeFactory;
+    private readonly ILogger<DataRetentionJob> _logger;
+
+    public DataRetentionJob(IServiceScopeFactory scopeFactory, ILogger<DataRetentionJob> logger)
+    {
+        _scopeFactory = scopeFactory;
+        _logger = logger;
+    }
+
+    public async Task ExecuteAsync(CancellationToken ct)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var compliance = scope.ServiceProvider.GetRequiredService<IComplianceService>();
+        var purged = await compliance.PurgeExpiredAuditLogsAsync(ct);
+        _logger.LogInformation("Data retention job completed; purged {Count} audit log entries", purged);
+    }
+}
+

@@ -1,90 +1,69 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AppLayout } from "@/components/layout/sidebar";
 import { StatCard, Card, CardContent, CardHeader, CardTitle, Button } from "@/components/ui";
 import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/utils";
+import { useDashboard, useAuditLogs } from "@/lib/api-hooks";
 import {
-  GitBranch, Database, Ticket, AlertTriangle, CheckCircle, Lightbulb, Plug, Activity, Plus
+  GitBranch, Database, Ticket, AlertTriangle, CheckCircle, Lightbulb, Plug, Activity, Plus,
+  ShieldAlert, HeartPulse, FlaskConical, Calendar
 } from "lucide-react";
 
-interface DashboardStats {
-  applicationCount: number;
-  repositoryCount: number;
-  databaseCount: number;
-  openTickets: number;
-  pendingApprovals: number;
-  openRecommendations: number;
-  averageRiskScore: number;
-  activeConnectors: number;
-}
-
-interface AuditEntry {
-  id: string;
-  action: string;
-  createdAt: string;
-}
-
 export default function DashboardPage() {
-  const { token, orgId, workspaceId, setAuth, setOrg, setWorkspace, user } = useAuth();
+  const { token, orgId, workspaceId, setOrg, setWorkspace } = useAuth();
   const router = useRouter();
-  const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [activity, setActivity] = useState<AuditEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const { data: stats, isLoading: statsLoading, error: statsError } = useDashboard();
+  const { data: auditData } = useAuditLogs(1, 5);
+  const activity = auditData?.items ?? [];
 
   useEffect(() => {
-    if (!token) { router.push("/login"); return; }
+    if (!token) {
+      router.push("/login");
+      return;
+    }
     initWorkspace();
   }, [token]);
 
   const initWorkspace = async () => {
     try {
-      let currentToken = token!;
       let currentOrgId = orgId;
       let currentWsId = workspaceId;
 
       if (!currentOrgId) {
-        const orgs = await api<{ id: string; name: string }[]>("/organizations", {}, currentToken);
+        const orgs = await api<{ id: string; name: string }[]>("/organizations", {}, token!);
         if (orgs.length === 0) {
-          const created = await api<{ organization: { id: string }; accessToken: string }>("/organizations", {
-            method: "POST", body: JSON.stringify({ name: "My Organization", slug: `org-${Date.now()}` })
-          }, currentToken);
-          currentOrgId = created.organization.id;
-          currentToken = created.accessToken;
-          if (user) setAuth(currentToken, user);
-        } else {
-          currentOrgId = orgs[0].id;
+          router.replace("/onboarding");
+          return;
         }
-        setOrg(currentOrgId!);
+        currentOrgId = orgs[0].id;
+        setOrg(currentOrgId);
       }
 
-      const workspaces = await api<{ id: string }[]>(`/organizations/${currentOrgId}/workspaces`, {}, currentToken, currentOrgId);
-      if (workspaces.length > 0) {
-        currentWsId = workspaces[0].id;
-        setWorkspace(currentWsId);
+      if (!currentWsId && currentOrgId) {
+        const workspaces = await api<{ id: string }[]>(
+          `/organizations/${currentOrgId}/workspaces`,
+          {},
+          token!,
+          currentOrgId
+        );
+        if (workspaces.length > 0) {
+          currentWsId = workspaces[0].id;
+          setWorkspace(currentWsId);
+        }
       }
-
-      if (currentWsId) {
-        const data = await api<DashboardStats>(`/workspaces/${currentWsId}/dashboard`, {}, currentToken, currentOrgId, currentWsId);
-        setStats(data);
-      }
-
-      if (currentOrgId) {
-        const logs = await api<{ items: AuditEntry[] }>(`/organizations/${currentOrgId}/audit-logs?page=1&pageSize=5`, {}, currentToken, currentOrgId);
-        setActivity(logs.items ?? []);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load dashboard");
-    } finally {
-      setLoading(false);
+    } catch {
+      // hooks surface load errors
     }
   };
 
   if (!token) return null;
+
+  const loading = statsLoading && !!workspaceId;
+  const error = statsError instanceof Error ? statsError.message : "";
 
   return (
     <AppLayout>
@@ -92,7 +71,7 @@ export default function DashboardPage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-zinc-100">Workspace Dashboard</h1>
-            <p className="text-zinc-400 mt-1">Overview of your software ecosystem</p>
+            <p className="text-zinc-400 mt-1">Executive overview of risk, quality, and delivery</p>
           </div>
           <div className="flex gap-3">
             <Link href="/connectors"><Button variant="secondary"><Plug className="h-4 w-4" /> Connect</Button></Link>
@@ -101,6 +80,44 @@ export default function DashboardPage() {
         </div>
 
         {error && <p className="text-sm text-red-400">{error}</p>}
+
+        <div>
+          <h2 className="text-sm font-medium text-zinc-400 uppercase tracking-wide mb-3">Executive Risk</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {loading ? (
+              [...Array(4)].map((_, i) => (
+                <div key={i} className="h-32 rounded-xl bg-zinc-900 animate-pulse" />
+              ))
+            ) : (
+              <>
+                <StatCard
+                  title="High Risk Items"
+                  value={stats?.highRiskCount ?? 0}
+                  subtitle="Risk score ≥ 7"
+                  icon={ShieldAlert}
+                />
+                <StatCard
+                  title="Unhealthy Connectors"
+                  value={stats?.unhealthyConnectors ?? 0}
+                  subtitle="Needs attention"
+                  icon={HeartPulse}
+                />
+                <StatCard
+                  title="Pending QA / UAT"
+                  value={(stats?.pendingQaCount ?? 0) + (stats?.pendingUatCount ?? 0)}
+                  subtitle={`QA ${stats?.pendingQaCount ?? 0} · UAT ${stats?.pendingUatCount ?? 0}`}
+                  icon={FlaskConical}
+                />
+                <StatCard
+                  title="Releases This Week"
+                  value={stats?.releasesThisWeek ?? 0}
+                  subtitle="Scheduled production"
+                  icon={Calendar}
+                />
+              </>
+            )}
+          </div>
+        </div>
 
         {loading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

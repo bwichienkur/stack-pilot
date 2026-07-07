@@ -125,8 +125,21 @@ public class DashboardService : IDashboardService
         var recommendations = await _db.Recommendations.CountAsync(r => r.WorkspaceId == workspaceId && r.Status == RecommendationStatus.Open, ct);
         var avgRisk = await _db.GraphNodes.Where(n => n.WorkspaceId == workspaceId && n.RiskScore != null).AverageAsync(n => (decimal?)n.RiskScore, ct) ?? 0;
         var connectors = await _db.ConnectorInstances.CountAsync(c => c.WorkspaceId == workspaceId && c.Status == ConnectorStatus.Active, ct);
+        var unhealthyConnectors = await _db.ConnectorInstances.CountAsync(c =>
+            c.WorkspaceId == workspaceId && c.HealthStatus == HealthStatus.Unhealthy, ct);
+        var weekStart = DateTime.UtcNow.AddDays(-7);
+        var releasesThisWeek = await _db.ReleaseSchedules.CountAsync(r =>
+            r.Ticket.WorkspaceId == workspaceId && r.ScheduledAt >= weekStart, ct);
+        var highRiskCount = await _db.GraphNodes.CountAsync(n =>
+            n.WorkspaceId == workspaceId && n.RiskScore >= 7, ct);
+        var pendingQa = await _db.Tickets.CountAsync(t => t.WorkspaceId == workspaceId &&
+            (t.Status == TicketStatus.DeployedToTest || t.Status == TicketStatus.QaInProgress || t.Status == TicketStatus.QaFailed), ct);
+        var pendingUat = await _db.Tickets.CountAsync(t => t.WorkspaceId == workspaceId &&
+            (t.Status == TicketStatus.QaPassed || t.Status == TicketStatus.UatInProgress || t.Status == TicketStatus.UatRejected), ct);
 
-        var stats = new DashboardStatsDto(appCount, repoCount, dbCount, openTickets, pendingApprovals, recommendations, avgRisk, connectors);
+        var stats = new DashboardStatsDto(
+            appCount, repoCount, dbCount, openTickets, pendingApprovals, recommendations, avgRisk, connectors,
+            unhealthyConnectors, releasesThisWeek, highRiskCount, pendingQa, pendingUat);
         await _cache.SetAsync(cacheKey, stats, TimeSpan.FromSeconds(60), ct);
         return stats;
     }

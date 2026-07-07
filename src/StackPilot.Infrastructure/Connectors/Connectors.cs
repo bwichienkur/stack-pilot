@@ -178,3 +178,32 @@ public class DatabaseScannerRouter : IDatabaseScanner
         return scanner.ScanAsync(context, databaseName, ct);
     }
 }
+
+public class RepositoryScannerRouter : IRepositoryScanner
+{
+    private readonly GitHubRepositoryScanner _github;
+    private readonly AzureDevOpsRepositoryScanner _azureDevOps;
+    private readonly BitbucketRepositoryScanner _bitbucket;
+
+    public RepositoryScannerRouter(
+        GitHubRepositoryScanner github,
+        AzureDevOpsRepositoryScanner azureDevOps,
+        BitbucketRepositoryScanner bitbucket)
+    {
+        _github = github;
+        _azureDevOps = azureDevOps;
+        _bitbucket = bitbucket;
+    }
+
+    public Task<RepositoryScanResult> ScanAsync(ConnectorContext context, string repositoryName, CancellationToken ct = default)
+    {
+        var scanner = context.ConnectorType switch
+        {
+            "github_repository" or "github_actions" => (IRepositoryScanner)_github,
+            "azure_devops_repository" => _azureDevOps,
+            "bitbucket_repository" => _bitbucket,
+            _ => _github
+        };
+        return scanner.ScanAsync(context, repositoryName, ct);
+    }
+}

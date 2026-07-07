@@ -6,10 +6,12 @@ import { AppLayout } from "@/components/layout/sidebar";
 import { Card, CardContent, Button, Input, Textarea } from "@/components/ui";
 import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/utils";
+import { useToast } from "@/components/ui/toast";
 
 export default function NewTicketPage() {
   const { token, orgId, workspaceId } = useAuth();
   const router = useRouter();
+  const { showToast } = useToast();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [ticketType, setTicketType] = useState("Enhancement");
@@ -33,7 +35,7 @@ export default function NewTicketPage() {
       );
       router.push(`/tickets/${ticket.id}`);
     } catch (err) {
-      console.error(err);
+      showToast(err instanceof Error ? err.message : "Failed to create ticket", "error");
     } finally {
       setLoading(false);
     }

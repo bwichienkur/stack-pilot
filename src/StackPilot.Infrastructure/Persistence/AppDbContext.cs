@@ -48,6 +48,8 @@ public class AppDbContext : DbContext
     public DbSet<AiConversation> AiConversations => Set<AiConversation>();
     public DbSet<GraphChunk> GraphChunks => Set<GraphChunk>();
     public DbSet<ApprovalGate> ApprovalGates => Set<ApprovalGate>();
+    public DbSet<OrganizationInvite> OrganizationInvites => Set<OrganizationInvite>();
+    public DbSet<OutboundWebhookSubscription> OutboundWebhookSubscriptions => Set<OutboundWebhookSubscription>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -127,6 +129,19 @@ public class AppDbContext : DbContext
             e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
         });
 
+        modelBuilder.Entity<OrganizationInvite>(e =>
+        {
+            e.HasIndex(x => x.TokenHash).IsUnique();
+            e.HasIndex(x => new { x.OrganizationId, x.Email });
+            e.HasOne(x => x.Organization).WithMany().HasForeignKey(x => x.OrganizationId);
+            e.HasOne(x => x.Role).WithMany().HasForeignKey(x => x.RoleId);
+        });
+
+        modelBuilder.Entity<OutboundWebhookSubscription>(e =>
+        {
+            e.HasIndex(x => new { x.OrganizationId, x.IsActive });
+        });
+
         ApplyTenantFilters(modelBuilder);
     }
 
@@ -157,6 +172,8 @@ public class AppDbContext : DbContext
         TenantFilter(modelBuilder.Entity<EnvironmentConfig>());
         TenantFilter(modelBuilder.Entity<GraphChunk>());
         TenantFilter(modelBuilder.Entity<ApprovalGate>());
+        TenantFilter(modelBuilder.Entity<OutboundWebhookSubscription>());
+        TenantFilter(modelBuilder.Entity<ReleaseSchedule>());
 
         modelBuilder.Entity<GraphChunk>(e =>
         {

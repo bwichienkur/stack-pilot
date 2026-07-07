@@ -304,6 +304,24 @@ public class BillingService : IBillingService
         return new BillingUsageDto(seatCount, workspaceCount, connectorCount, aiTokens);
     }
 
+    public async Task<AiUsageWithOverageDto> GetAiUsageWithOverageAsync(Guid organizationId, CancellationToken ct = default)
+    {
+        var org = await _db.Organizations.FindAsync([organizationId], ct)
+            ?? throw new KeyNotFoundException("Organization not found");
+
+        var limits = PlanCatalog.LimitsFor(org.Plan);
+        var usage = await GetUsageAsync(organizationId, ct);
+        var budget = limits.MonthlyAiTokenBudget;
+        var graceBudget = (long)(budget * 1.1);
+        var overage = Math.Max(0, usage.AiTokensUsedThisMonth - budget);
+        var withinGrace = usage.AiTokensUsedThisMonth > budget && usage.AiTokensUsedThisMonth <= graceBudget;
+
+        if (withinGrace)
+            _logger.LogWarning("Organization {OrgId} is within 10% AI token grace period ({Used}/{GraceBudget})", organizationId, usage.AiTokensUsedThisMonth, graceBudget);
+
+        return new AiUsageWithOverageDto(usage.AiTokensUsedThisMonth, budget, overage, withinGrace, usage.AiTokensUsedThisMonth > budget);
+    }
+
     private bool IsStripeConfigured() =>
         !string.IsNullOrWhiteSpace(_config["Billing:Stripe:SecretKey"]) &&
         !string.IsNullOrWhiteSpace(_config["Billing:Stripe:WebhookSecret"]);

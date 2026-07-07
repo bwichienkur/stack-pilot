@@ -12,6 +12,7 @@ public interface IApprovalGateService
 {
     Task EnsureDefaultGatesAsync(Guid organizationId, CancellationToken ct = default);
     Task<List<ApprovalGateDto>> GetGatesAsync(Guid organizationId, CancellationToken ct = default);
+    Task<List<ApprovalGateDto>> UpdateGatesAsync(Guid organizationId, List<UpdateApprovalGateRequest> gates, CancellationToken ct = default);
     Task<bool> AreAllGatesSatisfiedAsync(Guid ticketId, CancellationToken ct = default);
     Task<List<string>> GetPendingGateTypesAsync(Guid ticketId, CancellationToken ct = default);
 }

@@ -7,56 +7,21 @@ import { Card, Badge, Button } from "@/components/ui";
 import { PageSkeleton } from "@/components/page-skeleton";
 import { EmptyState } from "@/components/empty-state";
 import { useAuth } from "@/lib/auth-context";
-import { api } from "@/lib/utils";
-import { useToast } from "@/components/ui/toast";
-
-interface AuditLog {
-  id: string;
-  action: string;
-  entityType?: string;
-  entityId?: string;
-  userId?: string;
-  detailsJson?: string;
-  createdAt: string;
-}
-
-interface PagedLogs {
-  items: AuditLog[];
-  totalCount: number;
-  page: number;
-  pageSize: number;
-}
+import { useAuditLogs } from "@/lib/api-hooks";
 
 export default function AuditPage() {
-  const { token, orgId } = useAuth();
+  const { token } = useAuth();
   const router = useRouter();
-  const { showToast } = useToast();
-  const [logs, setLogs] = useState<AuditLog[]>([]);
   const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
   const pageSize = 25;
+  const { data, isLoading, error } = useAuditLogs(page, pageSize);
+
+  const logs = data?.items ?? [];
+  const total = data?.totalCount ?? 0;
 
   useEffect(() => {
-    if (!token) { router.push("/login"); return; }
-    if (orgId) load(page);
-  }, [token, orgId, page]);
-
-  const load = async (p: number) => {
-    setLoading(true);
-    try {
-      const data = await api<PagedLogs>(
-        `/organizations/${orgId}/audit-logs?page=${p}&pageSize=${pageSize}`,
-        {}, token, orgId
-      );
-      setLogs(data.items);
-      setTotal(data.totalCount);
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : "Failed to load audit logs", "error");
-    } finally {
-      setLoading(false);
-    }
-  };
+    if (!token) router.push("/login");
+  }, [token, router]);
 
   if (!token) return null;
 
@@ -70,12 +35,14 @@ export default function AuditPage() {
           <p className="text-zinc-400 mt-1">Immutable trail of organization activity</p>
         </div>
 
-        {loading ? <PageSkeleton rows={5} /> : logs.length === 0 ? (
+        {error && <p className="text-sm text-red-400">{error instanceof Error ? error.message : "Failed to load"}</p>}
+
+        {isLoading ? <PageSkeleton rows={5} /> : logs.length === 0 ? (
           <EmptyState title="No audit entries" description="Actions performed in this organization will appear here." />
         ) : (
           <>
-            <Card className="overflow-hidden">
-              <table className="w-full text-sm">
+            <Card className="overflow-hidden overflow-x-auto">
+              <table className="w-full text-sm min-w-[640px]">
                 <thead className="bg-zinc-900/80 text-zinc-400 text-left">
                   <tr>
                     <th className="px-4 py-3 font-medium">Time</th>
@@ -106,7 +73,7 @@ export default function AuditPage() {
               </table>
             </Card>
 
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-2">
               <p className="text-sm text-zinc-500">{total} total entries</p>
               <div className="flex gap-2">
                 <Button size="sm" variant="secondary" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Previous</Button>

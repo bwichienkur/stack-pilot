@@ -363,6 +363,119 @@ public class OrganizationService : IOrganizationService
             .ToListAsync(ct);
     }
 
+    public async Task<OrganizationInviteDto> CreateInviteAsync(Guid orgId, CreateInviteRequest request, Guid invitedByUserId, CancellationToken ct = default)
+    {
+        await _planLimits.EnsureCanAddSeatAsync(orgId, ct);
+
+        var email = request.Email.ToLowerInvariant();
+        if (await _db.OrganizationMembers.AnyAsync(m => m.OrganizationId == orgId && m.User.Email == email, ct))
+            throw new InvalidOperationException("User is already a member of this organization");
+
+        if (await _db.OrganizationInvites.AnyAsync(i =>
+                i.OrganizationId == orgId && i.Email == email && i.AcceptedAt == null && i.ExpiresAt > DateTime.UtcNow, ct))
+            throw new InvalidOperationException("A pending invite already exists for this email");
+
+        var role = await _db.Roles.FindAsync([request.RoleId], ct)
+            ?? throw new KeyNotFoundException("Role not found");
+
+        var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+        var invite = new OrganizationInvite
+        {
+            OrganizationId = orgId,
+            Email = email,
+            RoleId = request.RoleId,
+            TokenHash = HashInviteToken(token),
+            InvitedByUserId = invitedByUserId,
+            ExpiresAt = DateTime.UtcNow.AddDays(7)
+        };
+
+        _db.OrganizationInvites.Add(invite);
+        await _db.SaveChangesAsync(ct);
+
+        return new OrganizationInviteDto(invite.Id, invite.Email, role.Name, invite.ExpiresAt, invite.AcceptedAt, invite.CreatedAt);
+    }
+
+    public async Task<List<OrganizationInviteDto>> GetInvitesAsync(Guid orgId, CancellationToken ct = default)
+    {
+        return await _db.OrganizationInvites
+            .Where(i => i.OrganizationId == orgId && i.AcceptedAt == null)
+            .Include(i => i.Role)
+            .OrderByDescending(i => i.CreatedAt)
+            .Select(i => new OrganizationInviteDto(i.Id, i.Email, i.Role.Name, i.ExpiresAt, i.AcceptedAt, i.CreatedAt))
+            .ToListAsync(ct);
+    }
+
+    public async Task RevokeInviteAsync(Guid orgId, Guid inviteId, CancellationToken ct = default)
+    {
+        var invite = await _db.OrganizationInvites
+            .FirstOrDefaultAsync(i => i.Id == inviteId && i.OrganizationId == orgId && i.AcceptedAt == null, ct)
+            ?? throw new KeyNotFoundException("Invite not found");
+
+        _db.OrganizationInvites.Remove(invite);
+        await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task<OrganizationDto> AcceptInviteAsync(AcceptInviteRequest request, Guid userId, CancellationToken ct = default)
+    {
+        var tokenHash = HashInviteToken(request.Token);
+        var invite = await _db.OrganizationInvites
+            .Include(i => i.Organization)
+            .FirstOrDefaultAsync(i => i.TokenHash == tokenHash, ct)
+            ?? throw new KeyNotFoundException("Invalid or expired invite");
+
+        if (invite.AcceptedAt is not null)
+            throw new InvalidOperationException("Invite has already been accepted");
+        if (invite.ExpiresAt < DateTime.UtcNow)
+            throw new InvalidOperationException("Invite has expired");
+
+        var user = await _db.Users.FindAsync([userId], ct)
+            ?? throw new KeyNotFoundException("User not found");
+
+        if (!user.Email.Equals(invite.Email, StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException("Invite email does not match your account");
+
+        if (await _db.OrganizationMembers.AnyAsync(m => m.OrganizationId == invite.OrganizationId && m.UserId == userId, ct))
+            throw new InvalidOperationException("You are already a member of this organization");
+
+        await _planLimits.EnsureCanAddSeatAsync(invite.OrganizationId, ct);
+
+        _db.OrganizationMembers.Add(new OrganizationMember
+        {
+            OrganizationId = invite.OrganizationId,
+            UserId = userId,
+            RoleId = invite.RoleId
+        });
+
+        invite.AcceptedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync(ct);
+
+        var org = invite.Organization;
+        return new OrganizationDto(org.Id, org.Name, org.Slug, org.Plan.ToString(), org.IsActive);
+    }
+
+    public async Task<OrganizationMemberDto> UpdateMemberRoleAsync(Guid orgId, UpdateMemberRoleRequest request, CancellationToken ct = default)
+    {
+        var member = await _db.OrganizationMembers
+            .Include(m => m.User)
+            .Include(m => m.Role)
+            .FirstOrDefaultAsync(m => m.OrganizationId == orgId && m.UserId == request.UserId, ct)
+            ?? throw new KeyNotFoundException("Member not found");
+
+        var role = await _db.Roles.FindAsync([request.RoleId], ct)
+            ?? throw new KeyNotFoundException("Role not found");
+
+        member.RoleId = request.RoleId;
+        await _db.SaveChangesAsync(ct);
+
+        return new OrganizationMemberDto(member.UserId, member.User.Email, member.User.FirstName, member.User.LastName, role.Name, member.JoinedAt);
+    }
+
+    private static string HashInviteToken(string token)
+    {
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(token));
+        return Convert.ToHexString(bytes);
+    }
+
     private static OrganizationSettingsDto MapSettings(Organization org)
     {
         var flags = OrganizationFeatureFlags.Default;

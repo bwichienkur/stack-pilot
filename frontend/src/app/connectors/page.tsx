@@ -6,6 +6,7 @@ import { AppLayout } from "@/components/layout/sidebar";
 import { Card, CardContent, Badge, Button, Input } from "@/components/ui";
 import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/utils";
+import { useToast } from "@/components/ui/toast";
 import { Plus, RefreshCw, CheckCircle } from "lucide-react";
 
 interface ConnectorDef {
@@ -29,6 +30,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 export default function ConnectorsPage() {
   const { token, orgId, workspaceId } = useAuth();
   const router = useRouter();
+  const { showToast } = useToast();
   const [definitions, setDefinitions] = useState<ConnectorDef[]>([]);
   const [connectors, setConnectors] = useState<Connector[]>([]);
   const [showAdd, setShowAdd] = useState(false);
@@ -52,7 +54,7 @@ export default function ConnectorsPage() {
         setConnectors(conns);
       }
     } catch (err) {
-      console.error(err);
+      showToast(err instanceof Error ? err.message : "Failed to load connectors", "error");
     }
   };
 

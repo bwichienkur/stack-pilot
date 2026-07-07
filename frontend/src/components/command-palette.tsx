@@ -4,6 +4,8 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Search } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/lib/auth-context";
+import { isNavEnabled } from "@/lib/feature-flags";
 
 const NAV_ITEMS = [
   { href: "/", label: "Dashboard" },
@@ -14,20 +16,25 @@ const NAV_ITEMS = [
   { href: "/tickets/new", label: "New Ticket" },
   { href: "/approvals", label: "Approvals" },
   { href: "/recommendations", label: "Recommendations" },
+  { href: "/qa", label: "QA Queue" },
   { href: "/uat", label: "UAT Queue" },
   { href: "/deployments", label: "Deployments" },
   { href: "/releases", label: "Release Calendar" },
   { href: "/docs", label: "Documentation" },
   { href: "/settings", label: "Settings" },
   { href: "/onboarding", label: "Onboarding" },
+  { href: "/admin", label: "Platform Admin" },
 ];
 
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const router = useRouter();
+  const { featureFlags } = useAuth();
 
-  const filtered = NAV_ITEMS.filter((item) =>
+  const enabledItems = NAV_ITEMS.filter((item) => isNavEnabled(item.href, featureFlags));
+
+  const filtered = enabledItems.filter((item) =>
     item.label.toLowerCase().includes(query.toLowerCase())
   );
 
@@ -54,7 +61,7 @@ export function CommandPalette() {
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[20vh] bg-black/60" onClick={() => setOpen(false)}>
       <div
-        className="w-full max-w-lg rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl overflow-hidden"
+        className="w-full max-w-lg rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl overflow-hidden mx-4"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-3 px-4 border-b border-zinc-800">

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { AppLayout } from "@/components/layout/sidebar";
 import { Card, Badge, Button } from "@/components/ui";
 import { PageSkeleton } from "@/components/page-skeleton";
@@ -59,7 +60,7 @@ export default function DocsPage() {
             {pages.map((p) => (
               <Card key={p.id} className="p-4 flex items-center justify-between gap-4">
                 <div>
-                  <p className="font-medium text-zinc-100">{p.title}</p>
+                  <Link href={`/docs/${p.id}`} className="font-medium text-zinc-100 hover:text-indigo-400">{p.title}</Link>
                   <p className="text-xs text-zinc-500 mt-1">{p.docType} · v{p.latestVersion}</p>
                 </div>
                 <div className="flex items-center gap-2">

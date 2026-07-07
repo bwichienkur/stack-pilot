@@ -24,6 +24,11 @@ public interface IOrganizationService
     Task<OrganizationSettingsDto> GetSettingsAsync(Guid orgId, CancellationToken ct = default);
     Task<OrganizationSettingsDto> UpdateSettingsAsync(Guid orgId, UpdateOrganizationSettingsRequest request, CancellationToken ct = default);
     Task<List<OrganizationMemberDto>> GetMembersAsync(Guid orgId, CancellationToken ct = default);
+    Task<OrganizationInviteDto> CreateInviteAsync(Guid orgId, CreateInviteRequest request, Guid invitedByUserId, CancellationToken ct = default);
+    Task<List<OrganizationInviteDto>> GetInvitesAsync(Guid orgId, CancellationToken ct = default);
+    Task RevokeInviteAsync(Guid orgId, Guid inviteId, CancellationToken ct = default);
+    Task<OrganizationDto> AcceptInviteAsync(AcceptInviteRequest request, Guid userId, CancellationToken ct = default);
+    Task<OrganizationMemberDto> UpdateMemberRoleAsync(Guid orgId, UpdateMemberRoleRequest request, CancellationToken ct = default);
 }
 
 public interface IConnectorService
@@ -34,6 +39,7 @@ public interface IConnectorService
     Task<bool> TestConnectionAsync(Guid connectorId, CancellationToken ct = default);
     Task<SyncHistoryDto> TriggerSyncAsync(Guid connectorId, CancellationToken ct = default);
     Task<List<SyncHistoryDto>> GetSyncHistoryAsync(Guid connectorId, CancellationToken ct = default);
+    Task<ConnectorHealthSummaryDto> GetHealthSummaryAsync(Guid workspaceId, CancellationToken ct = default);
 }
 
 public interface IGraphService
@@ -61,6 +67,8 @@ public interface ITicketService
     Task<UatDecisionDto> SubmitUatAsync(Guid ticketId, SubmitUatRequest request, Guid approverId, CancellationToken ct = default);
     Task<ReleaseScheduleDto> ScheduleReleaseAsync(Guid ticketId, ScheduleReleaseRequest request, Guid userId, CancellationToken ct = default);
     Task<List<ReleaseScheduleDetailDto>> GetScheduledReleasesAsync(Guid workspaceId, CancellationToken ct = default);
+    Task<TicketWorkflowDto> GetWorkflowAsync(Guid ticketId, CancellationToken ct = default);
+    Task<ReleaseScheduleDto> UpdateReleaseAsync(Guid ticketId, Guid releaseId, UpdateReleaseRequest request, Guid userId, CancellationToken ct = default);
 }
 
 public interface IRecommendationService
@@ -112,6 +120,7 @@ public interface IAiService
     Task<AiRequirementsResult> GenerateRequirementsAsync(Guid ticketId, CancellationToken ct = default);
     Task<string> GenerateImplementationPlanAsync(Guid ticketId, CancellationToken ct = default);
     Task<string> GenerateDocumentationAsync(Guid pageId, CancellationToken ct = default);
+    Task<AiCodeSuggestionDto> GenerateCodeAsync(Guid ticketId, CancellationToken ct = default);
 }
 
 public interface ICredentialEncryptionService
@@ -136,4 +145,27 @@ public interface IBillingService
     Task<PortalSessionDto> CreatePortalSessionAsync(Guid organizationId, CreatePortalSessionRequest request, CancellationToken ct = default);
     Task HandleStripeWebhookAsync(string json, string signatureHeader, CancellationToken ct = default);
     Task EnsureStripeCouponsAsync(CancellationToken ct = default);
+    Task<AiUsageWithOverageDto> GetAiUsageWithOverageAsync(Guid organizationId, CancellationToken ct = default);
+}
+
+public interface IOutboundWebhookService
+{
+    Task<OutboundWebhookSubscriptionDto> CreateAsync(Guid organizationId, CreateOutboundWebhookRequest request, CancellationToken ct = default);
+    Task<List<OutboundWebhookSubscriptionDto>> ListAsync(Guid organizationId, CancellationToken ct = default);
+    Task DeleteAsync(Guid organizationId, Guid subscriptionId, CancellationToken ct = default);
+    Task DispatchAsync(string eventType, Guid organizationId, object payload, CancellationToken ct = default);
+}
+
+public interface IComplianceService
+{
+    Task<int> PurgeExpiredAuditLogsAsync(CancellationToken ct = default);
+    Task<string> ExportOrganizationDataAsync(Guid organizationId, CancellationToken ct = default);
+    Task DeleteOrganizationDataAsync(Guid organizationId, CancellationToken ct = default);
+}
+
+public interface IAdminService
+{
+    Task<List<AdminOrganizationSummaryDto>> ListOrganizationsAsync(CancellationToken ct = default);
+    Task<AdminOrganizationDetailDto?> GetOrganizationDetailAsync(Guid organizationId, CancellationToken ct = default);
+    Task<OrganizationDto> OverridePlanAsync(Guid organizationId, OverridePlanRequest request, CancellationToken ct = default);
 }

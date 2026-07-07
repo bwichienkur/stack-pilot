@@ -43,6 +43,12 @@ public class BillingController : ControllerBase
         Guid organizationId, [FromBody] CreatePortalSessionRequest request, CancellationToken ct) =>
         Ok(ApiResponse<PortalSessionDto>.Ok(await _billing.CreatePortalSessionAsync(organizationId, request, ct)));
 
+    [HttpGet("organizations/{organizationId:guid}/ai-usage")]
+    [Authorize]
+    [RequirePermission(Permissions.SettingsManage)]
+    public async Task<ActionResult<ApiResponse<AiUsageWithOverageDto>>> GetAiUsage(Guid organizationId, CancellationToken ct) =>
+        Ok(ApiResponse<AiUsageWithOverageDto>.Ok(await _billing.GetAiUsageWithOverageAsync(organizationId, ct)));
+
     [HttpPost("webhooks/stripe")]
     [AllowAnonymous]
     public async Task<IActionResult> StripeWebhook(CancellationToken ct)

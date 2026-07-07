@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AppLayout } from "@/components/layout/sidebar";
@@ -8,39 +8,16 @@ import { Card, Badge } from "@/components/ui";
 import { PageSkeleton } from "@/components/page-skeleton";
 import { EmptyState } from "@/components/empty-state";
 import { useAuth } from "@/lib/auth-context";
-import { api } from "@/lib/utils";
-import { useToast } from "@/components/ui/toast";
-
-interface Application {
-  id: string;
-  nodeType: string;
-  name: string;
-  riskScore?: number;
-  metadataJson?: string;
-}
+import { useApplications } from "@/lib/api-hooks";
 
 export default function ApplicationsPage() {
-  const { token, orgId, workspaceId } = useAuth();
+  const { token } = useAuth();
   const router = useRouter();
-  const { showToast } = useToast();
-  const [apps, setApps] = useState<Application[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: apps = [], isLoading, error } = useApplications();
 
   useEffect(() => {
-    if (!token) { router.push("/login"); return; }
-    if (workspaceId) load();
-  }, [token, workspaceId]);
-
-  const load = async () => {
-    try {
-      const data = await api<Application[]>(`/workspaces/${workspaceId}/applications`, {}, token, orgId, workspaceId);
-      setApps(data);
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : "Failed to load applications", "error");
-    } finally {
-      setLoading(false);
-    }
-  };
+    if (!token) router.push("/login");
+  }, [token, router]);
 
   if (!token) return null;
 
@@ -52,7 +29,9 @@ export default function ApplicationsPage() {
           <p className="text-zinc-400 mt-1">Application inventory from repository scans</p>
         </div>
 
-        {loading ? <PageSkeleton rows={4} /> : apps.length === 0 ? (
+        {error && <p className="text-sm text-red-400">{error instanceof Error ? error.message : "Failed to load"}</p>}
+
+        {isLoading ? <PageSkeleton rows={4} /> : apps.length === 0 ? (
           <EmptyState
             title="No applications discovered"
             description="Connect and sync a repository to populate your application inventory."

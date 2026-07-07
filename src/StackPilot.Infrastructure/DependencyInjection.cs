@@ -67,6 +67,9 @@ public static class DependencyInjection
         services.AddScoped<IApprovalGateService, ApprovalGateService>();
         services.AddScoped<IPlanLimitService, PlanLimitService>();
         services.AddScoped<IBillingService, BillingService>();
+        services.AddScoped<IOutboundWebhookService, OutboundWebhookService>();
+        services.AddScoped<IComplianceService, DataRetentionService>();
+        services.AddScoped<IAdminService, AdminService>();
         services.AddSingleton<ICredentialEncryptionService, CredentialEncryptionService>();
         services.AddSingleton<IBackgroundJobService, BackgroundJobService>();
 
@@ -80,7 +83,10 @@ public static class DependencyInjection
         services.AddSingleton<MySqlDatabaseScanner>();
         services.AddSingleton<MongoDbDatabaseScanner>();
         services.AddSingleton<IDatabaseScanner, DatabaseScannerRouter>();
-        services.AddSingleton<IRepositoryScanner, RepositoryScanner>();
+        services.AddSingleton<GitHubRepositoryScanner>();
+        services.AddSingleton<AzureDevOpsRepositoryScanner>();
+        services.AddSingleton<BitbucketRepositoryScanner>();
+        services.AddSingleton<IRepositoryScanner, RepositoryScannerRouter>();
 
         services.AddSingleton<IConnector, GitHubRepositoryConnector>();
         services.AddSingleton<IConnector, GitHubActionsConnector>();
@@ -93,7 +99,8 @@ public static class DependencyInjection
         services.AddSingleton<IConnector, MySqlConnectorImpl>();
         services.AddSingleton<IConnector, MongoDbConnector>();
         services.AddSingleton<IConnector, JenkinsConnector>();
-        services.AddSingleton<IConnector, JiraConnector>();
+        services.AddSingleton<JiraConnector>();
+        services.AddSingleton<IConnector>(sp => sp.GetRequiredService<JiraConnector>());
         services.AddSingleton<IConnector, ServiceNowConnector>();
         services.AddSingleton<IConnectorRegistry, ConnectorRegistry>();
 
@@ -101,6 +108,7 @@ public static class DependencyInjection
         services.AddScoped<RepositoryScanJob>();
         services.AddScoped<DatabaseScanJob>();
         services.AddScoped<GenerateRequirementsJob>();
+        services.AddScoped<DataRetentionJob>();
 
         return services;
     }

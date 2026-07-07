@@ -148,6 +148,58 @@ public class JiraConnector : ConnectorBase
         return "";
     }
 
+    public async Task PushTicketStatusAsync(ConnectorContext context, string externalIssueKey, string ticketStatus, CancellationToken ct = default)
+    {
+        var (baseUrl, email, apiToken) = GetCredentials(context);
+        if (baseUrl is null || email is null || apiToken is null) return;
+
+        var jiraStatus = MapToJiraStatus(ticketStatus);
+        if (jiraStatus is null) return;
+
+        try
+        {
+            var client = CreateClient(baseUrl, email, apiToken);
+            var transitionsResponse = await client.GetAsync($"/rest/api/3/issue/{externalIssueKey}/transitions", ct);
+            if (!transitionsResponse.IsSuccessStatusCode) return;
+
+            var transitionsJson = await transitionsResponse.Content.ReadFromJsonAsync<JsonElement>(ct);
+            if (!transitionsJson.TryGetProperty("transitions", out var transitions)) return;
+
+            string? transitionId = null;
+            foreach (var transition in transitions.EnumerateArray())
+            {
+                if (transition.TryGetProperty("to", out var to) &&
+                    to.TryGetProperty("name", out var name) &&
+                    name.GetString()?.Equals(jiraStatus, StringComparison.OrdinalIgnoreCase) == true)
+                {
+                    transitionId = transition.GetProperty("id").GetString();
+                    break;
+                }
+            }
+
+            if (transitionId is null) return;
+
+            var payload = JsonSerializer.Serialize(new { transition = new { id = transitionId } });
+            using var content = new StringContent(payload, Encoding.UTF8, "application/json");
+            await client.PostAsync($"/rest/api/3/issue/{externalIssueKey}/transitions", content, ct);
+        }
+        catch
+        {
+            // Best-effort push-back; sync remains source of truth on failure
+        }
+    }
+
+    private static string? MapToJiraStatus(string ticketStatus) => ticketStatus.ToLowerInvariant() switch
+    {
+        "submitted" or "aianalysispending" or "requirementsdrafted" => "To Do",
+        "awaitingapproval" => "In Review",
+        "approved" or "implementationinprogress" => "In Progress",
+        "qapassed" or "uatinprogress" => "Testing",
+        "uataccepted" or "scheduledforproduction" => "Ready for Release",
+        "deployedtoproduction" or "closed" => "Done",
+        _ => null
+    };
+
     private HttpClient CreateClient(string baseUrl, string email, string apiToken)
     {
         var client = _httpClientFactory.CreateClient();

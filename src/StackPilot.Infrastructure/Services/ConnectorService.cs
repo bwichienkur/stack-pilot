@@ -145,6 +145,25 @@ public class ConnectorService : IConnectorService
             .ToListAsync(ct);
     }
 
+    public async Task<ConnectorHealthSummaryDto> GetHealthSummaryAsync(Guid workspaceId, CancellationToken ct = default)
+    {
+        var connectors = await _db.ConnectorInstances
+            .Where(c => c.WorkspaceId == workspaceId)
+            .GroupBy(c => c.HealthStatus)
+            .Select(g => new { Status = g.Key, Count = g.Count() })
+            .ToListAsync(ct);
+
+        int Count(HealthStatus status) => connectors.FirstOrDefault(c => c.Status == status)?.Count ?? 0;
+        var total = connectors.Sum(c => c.Count);
+
+        return new ConnectorHealthSummaryDto(
+            total,
+            Count(HealthStatus.Healthy),
+            Count(HealthStatus.Degraded),
+            Count(HealthStatus.Unhealthy),
+            Count(HealthStatus.Unknown));
+    }
+
     private async Task<(IConnector connector, ConnectorContext context)> BuildContextAsync(Guid connectorId, CancellationToken ct)
     {
         var instance = await _db.ConnectorInstances

@@ -136,3 +136,26 @@ public class EnvironmentConfig : BaseEntity, ITenantEntity
     public string? ConfigJson { get; set; }
     public bool IsProduction { get; set; }
 }
+
+public class OrganizationInvite : BaseEntity
+{
+    public Guid OrganizationId { get; set; }
+    public string Email { get; set; } = string.Empty;
+    public Guid RoleId { get; set; }
+    public string TokenHash { get; set; } = string.Empty;
+    public Guid InvitedByUserId { get; set; }
+    public DateTime ExpiresAt { get; set; }
+    public DateTime? AcceptedAt { get; set; }
+
+    public Organization Organization { get; set; } = null!;
+    public Role Role { get; set; } = null!;
+}
+
+public class OutboundWebhookSubscription : BaseEntity, ITenantEntity
+{
+    public Guid OrganizationId { get; set; }
+    public string Url { get; set; } = string.Empty;
+    public string Secret { get; set; } = string.Empty;
+    public string EventsJson { get; set; } = "[]";
+    public bool IsActive { get; set; } = true;
+}

@@ -143,6 +143,64 @@ public class OrganizationsController : ControllerBase
     [RequirePermission(Permissions.UsersManage)]
     public async Task<ActionResult<ApiResponse<List<OrganizationMemberDto>>>> Members(Guid id, CancellationToken ct) =>
         Ok(ApiResponse<List<OrganizationMemberDto>>.Ok(await _orgs.GetMembersAsync(id, ct)));
+
+    [HttpPost("{id:guid}/invites")]
+    [RequirePermission(Permissions.UsersManage)]
+    public async Task<ActionResult<ApiResponse<OrganizationInviteDto>>> CreateInvite(Guid id, [FromBody] CreateInviteRequest request, CancellationToken ct) =>
+        Ok(ApiResponse<OrganizationInviteDto>.Ok(await _orgs.CreateInviteAsync(id, request, UserId, ct)));
+
+    [HttpGet("{id:guid}/invites")]
+    [RequirePermission(Permissions.UsersManage)]
+    public async Task<ActionResult<ApiResponse<List<OrganizationInviteDto>>>> Invites(Guid id, CancellationToken ct) =>
+        Ok(ApiResponse<List<OrganizationInviteDto>>.Ok(await _orgs.GetInvitesAsync(id, ct)));
+
+    [HttpDelete("{id:guid}/invites/{inviteId:guid}")]
+    [RequirePermission(Permissions.UsersManage)]
+    public async Task<IActionResult> RevokeInvite(Guid id, Guid inviteId, CancellationToken ct)
+    {
+        await _orgs.RevokeInviteAsync(id, inviteId, ct);
+        return NoContent();
+    }
+
+    [HttpPost("invites/accept")]
+    public async Task<ActionResult<ApiResponse<OrganizationDto>>> AcceptInvite([FromBody] AcceptInviteRequest request, CancellationToken ct) =>
+        Ok(ApiResponse<OrganizationDto>.Ok(await _orgs.AcceptInviteAsync(request, UserId, ct)));
+
+    [HttpPut("{id:guid}/members/role")]
+    [RequirePermission(Permissions.UsersManage)]
+    public async Task<ActionResult<ApiResponse<OrganizationMemberDto>>> UpdateMemberRole(Guid id, [FromBody] UpdateMemberRoleRequest request, CancellationToken ct) =>
+        Ok(ApiResponse<OrganizationMemberDto>.Ok(await _orgs.UpdateMemberRoleAsync(id, request, ct)));
+
+    [HttpGet("{id:guid}/approval-gates")]
+    [RequirePermission(Permissions.SettingsManage)]
+    public async Task<ActionResult<ApiResponse<List<ApprovalGateDto>>>> ApprovalGates(Guid id, [FromServices] IApprovalGateService gates, CancellationToken ct) =>
+        Ok(ApiResponse<List<ApprovalGateDto>>.Ok(await gates.GetGatesAsync(id, ct)));
+
+    [HttpPut("{id:guid}/approval-gates")]
+    [RequirePermission(Permissions.SettingsManage)]
+    public async Task<ActionResult<ApiResponse<List<ApprovalGateDto>>>> UpdateApprovalGates(
+        Guid id, [FromBody] List<UpdateApprovalGateRequest> gates, [FromServices] IApprovalGateService gateService, CancellationToken ct) =>
+        Ok(ApiResponse<List<ApprovalGateDto>>.Ok(await gateService.UpdateGatesAsync(id, gates, ct)));
+
+    [HttpGet("{id:guid}/webhooks")]
+    [RequirePermission(Permissions.SettingsManage)]
+    public async Task<ActionResult<ApiResponse<List<OutboundWebhookSubscriptionDto>>>> ListWebhooks(
+        Guid id, [FromServices] IOutboundWebhookService webhooks, CancellationToken ct) =>
+        Ok(ApiResponse<List<OutboundWebhookSubscriptionDto>>.Ok(await webhooks.ListAsync(id, ct)));
+
+    [HttpPost("{id:guid}/webhooks")]
+    [RequirePermission(Permissions.SettingsManage)]
+    public async Task<ActionResult<ApiResponse<OutboundWebhookSubscriptionDto>>> CreateWebhook(
+        Guid id, [FromBody] CreateOutboundWebhookRequest request, [FromServices] IOutboundWebhookService webhooks, CancellationToken ct) =>
+        Ok(ApiResponse<OutboundWebhookSubscriptionDto>.Ok(await webhooks.CreateAsync(id, request, ct)));
+
+    [HttpDelete("{id:guid}/webhooks/{subscriptionId:guid}")]
+    [RequirePermission(Permissions.SettingsManage)]
+    public async Task<IActionResult> DeleteWebhook(Guid id, Guid subscriptionId, [FromServices] IOutboundWebhookService webhooks, CancellationToken ct)
+    {
+        await webhooks.DeleteAsync(id, subscriptionId, ct);
+        return NoContent();
+    }
 }
 
 [ApiController]
@@ -185,6 +243,11 @@ public class ConnectorsController : ControllerBase
     [RequirePermission(Permissions.ConnectorsRead)]
     public async Task<ActionResult<ApiResponse<List<SyncHistoryDto>>>> SyncHistory(Guid id, CancellationToken ct) =>
         Ok(ApiResponse<List<SyncHistoryDto>>.Ok(await _connectors.GetSyncHistoryAsync(id, ct)));
+
+    [HttpGet("workspaces/{workspaceId:guid}/connectors/health")]
+    [RequirePermission(Permissions.ConnectorsRead)]
+    public async Task<ActionResult<ApiResponse<ConnectorHealthSummaryDto>>> HealthSummary(Guid workspaceId, CancellationToken ct) =>
+        Ok(ApiResponse<ConnectorHealthSummaryDto>.Ok(await _connectors.GetHealthSummaryAsync(workspaceId, ct)));
 }
 
 [ApiController]
@@ -296,6 +359,22 @@ public class TicketsController : ControllerBase
     [RequirePermission(Permissions.TicketsApproveRelease)]
     public async Task<ActionResult<ApiResponse<List<ReleaseScheduleDetailDto>>>> Releases(Guid workspaceId, CancellationToken ct) =>
         Ok(ApiResponse<List<ReleaseScheduleDetailDto>>.Ok(await _tickets.GetScheduledReleasesAsync(workspaceId, ct)));
+
+    [HttpGet("tickets/{id:guid}/workflow")]
+    [RequirePermission(Permissions.TicketsRead)]
+    public async Task<ActionResult<ApiResponse<TicketWorkflowDto>>> Workflow(Guid id, CancellationToken ct) =>
+        Ok(ApiResponse<TicketWorkflowDto>.Ok(await _tickets.GetWorkflowAsync(id, ct)));
+
+    [HttpPost("tickets/{id:guid}/releases/{releaseId:guid}")]
+    [RequirePermission(Permissions.TicketsApproveRelease)]
+    public async Task<ActionResult<ApiResponse<ReleaseScheduleDto>>> UpdateRelease(Guid id, Guid releaseId, [FromBody] UpdateReleaseRequest request, CancellationToken ct) =>
+        Ok(ApiResponse<ReleaseScheduleDto>.Ok(await _tickets.UpdateReleaseAsync(id, releaseId, request, UserId, ct)));
+
+    [HttpPost("tickets/{id:guid}/generate-code")]
+    [RequirePermission(Permissions.AiUse)]
+    [EnableRateLimiting("ai")]
+    public async Task<ActionResult<ApiResponse<AiCodeSuggestionDto>>> GenerateCode(Guid id, CancellationToken ct) =>
+        Ok(ApiResponse<AiCodeSuggestionDto>.Ok(await _ai.GenerateCodeAsync(id, ct)));
 }
 
 [ApiController]
