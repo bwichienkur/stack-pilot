@@ -1,7 +1,6 @@
 using System.Threading.RateLimiting;
 using FluentValidation;
 using Hangfire;
-using Hangfire.PostgreSql;
 using Microsoft.AspNetCore.Mvc;
 using Serilog;
 using StackPilot.Api;
@@ -11,6 +10,7 @@ using StackPilot.Api.Filters;
 using StackPilot.Api.Middleware;
 using StackPilot.Application.Validators;
 using StackPilot.Infrastructure;
+using StackPilot.Infrastructure.Extensions;
 using StackPilot.Infrastructure.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -26,7 +26,7 @@ builder.Host.UseSerilog();
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddStackPilotAuthentication(builder.Configuration);
 builder.Services.AddStackPilotAuthorization();
-builder.Services.AddStackPilotOpenTelemetry(builder.Configuration);
+builder.Services.AddStackPilotOpenTelemetry(builder.Configuration, "StackPilot.Api");
 
 builder.Services.AddRateLimiter(options =>
 {
@@ -94,25 +94,18 @@ builder.Services.AddCors(options =>
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? "Host=localhost;Port=5432;Database=stackpilot;Username=stackpilot;Password=stackpilot";
 
-if (!builder.Environment.IsEnvironment("Testing"))
-{
-    builder.Services.AddHangfire(config => config
-        .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
-        .UseSimpleAssemblyNameTypeSerializer()
-        .UseRecommendedSerializerSettings()
-        .UsePostgreSqlStorage(c => c.UseNpgsqlConnection(connectionString)));
+var runHangfireOnApi = builder.Configuration.GetValue("Hangfire:RunServerOnApi", builder.Environment.IsDevelopment());
 
-    builder.Services.AddHangfireServer(options =>
-    {
-        options.Queues = ["critical", "default", "low"];
-        options.WorkerCount = 4;
-    });
-}
+builder.Services.AddStackPilotHangfire(builder.Configuration, builder.Environment, runHangfireOnApi);
 
 if (!builder.Environment.IsEnvironment("Testing"))
 {
-    builder.Services.AddHealthChecks()
+    var healthChecks = builder.Services.AddHealthChecks()
         .AddNpgSql(connectionString, name: "postgres");
+
+    var redisConnection = builder.Configuration.GetConnectionString("Redis");
+    if (!string.IsNullOrWhiteSpace(redisConnection))
+        healthChecks.AddRedis(redisConnection, name: "redis");
 }
 
 var app = builder.Build();
@@ -127,6 +120,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseGlobalExceptionHandling();
+app.UseApiVersionHeaders();
 app.UseSerilogRequestLogging();
 app.UseCors();
 app.UseRateLimiter();

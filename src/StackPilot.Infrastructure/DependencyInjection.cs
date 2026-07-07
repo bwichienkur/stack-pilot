@@ -1,11 +1,13 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using StackExchange.Redis;
 using StackPilot.Application.AI;
 using StackPilot.Application.Common;
 using StackPilot.Application.Connectors;
 using StackPilot.Application.Interfaces;
 using StackPilot.Infrastructure.AI;
+using StackPilot.Infrastructure.Caching;
 using StackPilot.Infrastructure.Connectors;
 using StackPilot.Infrastructure.External;
 using StackPilot.Infrastructure.Jobs;
@@ -20,6 +22,21 @@ public static class DependencyInjection
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddScoped<ITenantContext, TenantContext>();
+        services.AddMemoryCache();
+
+        var redisConnection = configuration.GetConnectionString("Redis");
+        var environmentName = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
+        if (!string.IsNullOrWhiteSpace(redisConnection) && environmentName != "Testing")
+        {
+            var options = ConfigurationOptions.Parse(redisConnection);
+            options.AbortOnConnectFail = false;
+            services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(options));
+            services.AddSingleton<ICacheService, RedisCacheService>();
+        }
+        else
+        {
+            services.AddSingleton<ICacheService, MemoryCacheService>();
+        }
 
         services.AddDbContext<AppDbContext>(options =>
             options.UseNpgsql(configuration.GetConnectionString("DefaultConnection")
@@ -40,6 +57,7 @@ public static class DependencyInjection
         services.AddScoped<IAuditService, AuditService>();
         services.AddScoped<IDashboardService, DashboardService>();
         services.AddScoped<IIntelligenceService, IntelligenceService>();
+        services.AddScoped<IWebhookService, WebhookService>();
         services.AddScoped<IAiService, AiService>();
         services.AddScoped<IAiGovernanceService, AiGovernanceService>();
         services.AddScoped<IRagIndexService, RagIndexService>();

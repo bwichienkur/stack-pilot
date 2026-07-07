@@ -6,6 +6,7 @@ using StackPilot.Application.DTOs;
 using StackPilot.Application.Interfaces;
 using StackPilot.Domain.Entities;
 using StackPilot.Domain.Enums;
+using StackPilot.Infrastructure.Caching;
 using StackPilot.Infrastructure.Persistence;
 
 namespace StackPilot.Infrastructure.Services;
@@ -18,9 +19,11 @@ public class ConnectorService : IConnectorService
     private readonly ICredentialEncryptionService _encryption;
     private readonly IBackgroundJobService _jobs;
     private readonly IAuditService _audit;
+    private readonly ICacheService _cache;
 
     public ConnectorService(AppDbContext db, ITenantContext tenant, IConnectorRegistry registry,
-        ICredentialEncryptionService encryption, IBackgroundJobService jobs, IAuditService audit)
+        ICredentialEncryptionService encryption, IBackgroundJobService jobs, IAuditService audit,
+        ICacheService cache)
     {
         _db = db;
         _tenant = tenant;
@@ -28,13 +31,20 @@ public class ConnectorService : IConnectorService
         _encryption = encryption;
         _jobs = jobs;
         _audit = audit;
+        _cache = cache;
     }
 
     public async Task<List<ConnectorDefinitionDto>> GetDefinitionsAsync(CancellationToken ct = default)
     {
+        var cached = await _cache.GetAsync<List<ConnectorDefinitionDto>>(CacheKeys.ConnectorDefinitions, ct);
+        if (cached is not null) return cached;
+
         var defs = await _db.ConnectorDefinitions.ToListAsync(ct);
-        return defs.Select(d => new ConnectorDefinitionDto(d.Id, d.Type, d.Name, d.Description, d.ConfigSchema,
+        var result = defs.Select(d => new ConnectorDefinitionDto(d.Id, d.Type, d.Name, d.Description, d.ConfigSchema,
             JsonSerializer.Deserialize<string[]>(d.Capabilities) ?? Array.Empty<string>())).ToList();
+
+        await _cache.SetAsync(CacheKeys.ConnectorDefinitions, result, TimeSpan.FromMinutes(10), ct);
+        return result;
     }
 
     public async Task<List<ConnectorInstanceDto>> GetByWorkspaceAsync(Guid workspaceId, CancellationToken ct = default)

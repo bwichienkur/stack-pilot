@@ -33,9 +33,26 @@ services:
       - "5000:5000"
     environment:
       ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=stackpilot;Username=stackpilot;Password=stackpilot
+      ConnectionStrings__Redis: redis:6379
       Cors__Origins__0: http://localhost:3000
+      Hangfire__RunServerOnApi: "false"
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  workers:
+    build:
+      context: .
+      dockerfile: Dockerfile.workers
+    environment:
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=stackpilot;Username=stackpilot;Password=stackpilot
+      ConnectionStrings__Redis: redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   frontend:

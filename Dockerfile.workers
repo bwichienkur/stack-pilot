@@ -1,0 +1,15 @@
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+WORKDIR /src
+COPY StackPilot.sln ./
+COPY src/StackPilot.Workers/StackPilot.Workers.csproj src/StackPilot.Workers/
+COPY src/StackPilot.Application/StackPilot.Application.csproj src/StackPilot.Application/
+COPY src/StackPilot.Domain/StackPilot.Domain.csproj src/StackPilot.Domain/
+COPY src/StackPilot.Infrastructure/StackPilot.Infrastructure.csproj src/StackPilot.Infrastructure/
+RUN dotnet restore src/StackPilot.Workers/StackPilot.Workers.csproj
+COPY src/ ./src/
+RUN dotnet publish src/StackPilot.Workers/StackPilot.Workers.csproj -c Release -o /app/publish --no-restore
+
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
+WORKDIR /app
+COPY --from=build /app/publish .
+ENTRYPOINT ["dotnet", "StackPilot.Workers.dll"]

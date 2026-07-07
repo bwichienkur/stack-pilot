@@ -353,6 +353,11 @@ public class GraphController : ControllerBase
     public async Task<ActionResult<ApiResponse<List<DatabaseScanDto>>>> Databases(Guid workspaceId, CancellationToken ct) =>
         Ok(ApiResponse<List<DatabaseScanDto>>.Ok(await _intelligence.GetDatabaseScansAsync(workspaceId, ct)));
 
+    [HttpGet("workspaces/{workspaceId:guid}/build-runs")]
+    [RequirePermission(Permissions.DeploymentsRead)]
+    public async Task<ActionResult<ApiResponse<List<BuildRunDto>>>> BuildRuns(Guid workspaceId, CancellationToken ct) =>
+        Ok(ApiResponse<List<BuildRunDto>>.Ok(await _intelligence.GetBuildRunsAsync(workspaceId, ct)));
+
     [HttpGet("workspaces/{workspaceId:guid}/recommendations")]
     [RequirePermission(Permissions.RecommendationsRead)]
     public async Task<ActionResult<ApiResponse<PagedResult<RecommendationDto>>>> Recommendations(Guid workspaceId, [FromQuery] PagedRequest request, CancellationToken ct)

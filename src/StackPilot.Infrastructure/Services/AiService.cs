@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using StackPilot.Application.AI;
@@ -32,6 +33,8 @@ public class AiService : IAiService
 
     public async Task<AiChatResponse> ChatAsync(Guid workspaceId, AiChatRequest request, Guid userId, CancellationToken ct = default)
     {
+        using var activity = StackPilotTelemetry.StartActivity("ai.chat");
+        activity?.SetTag("workspace.id", workspaceId);
         AiConversation conversation;
         if (request.ConversationId.HasValue)
         {
@@ -68,6 +71,8 @@ public class AiService : IAiService
 
     public async Task<AiRequirementsResult> GenerateRequirementsAsync(Guid ticketId, CancellationToken ct = default)
     {
+        using var activity = StackPilotTelemetry.StartActivity("ai.generate_requirements");
+        activity?.SetTag("ticket.id", ticketId);
         var ticket = await _db.Tickets.FindAsync([ticketId], ct)
             ?? throw new KeyNotFoundException("Ticket not found");
 

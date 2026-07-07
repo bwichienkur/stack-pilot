@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
@@ -40,6 +41,8 @@ public class ConnectorSyncJob
 
     public async Task ExecuteAsync(Guid connectorId, CancellationToken ct)
     {
+        using var activity = StackPilotTelemetry.StartActivity("job.connector_sync");
+        activity?.SetTag("connector.id", connectorId);
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var registry = scope.ServiceProvider.GetRequiredService<IConnectorRegistry>();
@@ -151,6 +154,9 @@ public class RepositoryScanJob
 
     public async Task ExecuteAsync(Guid connectorId, string repositoryName, CancellationToken ct)
     {
+        using var activity = StackPilotTelemetry.StartActivity("job.repository_scan");
+        activity?.SetTag("connector.id", connectorId);
+        activity?.SetTag("repository", repositoryName);
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var scanner = scope.ServiceProvider.GetRequiredService<IRepositoryScanner>();
@@ -242,6 +248,9 @@ public class DatabaseScanJob
 
     public async Task ExecuteAsync(Guid connectorId, string databaseName, CancellationToken ct)
     {
+        using var activity = StackPilotTelemetry.StartActivity("job.database_scan");
+        activity?.SetTag("connector.id", connectorId);
+        activity?.SetTag("database", databaseName);
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var scanner = scope.ServiceProvider.GetRequiredService<IDatabaseScanner>();
@@ -338,6 +347,8 @@ public class GenerateRequirementsJob
 
     public async Task ExecuteAsync(Guid ticketId, CancellationToken ct)
     {
+        using var activity = StackPilotTelemetry.StartActivity("job.generate_requirements");
+        activity?.SetTag("ticket.id", ticketId);
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var aiService = scope.ServiceProvider.GetRequiredService<IAiService>();

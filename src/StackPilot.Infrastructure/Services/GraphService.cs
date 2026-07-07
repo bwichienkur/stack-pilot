@@ -5,6 +5,7 @@ using StackPilot.Application.DTOs;
 using StackPilot.Application.Interfaces;
 using StackPilot.Domain.Entities;
 using StackPilot.Domain.Enums;
+using StackPilot.Infrastructure.Caching;
 using StackPilot.Infrastructure.Persistence;
 
 namespace StackPilot.Infrastructure.Services;
@@ -91,11 +92,20 @@ public class GraphService : IGraphService
 public class DashboardService : IDashboardService
 {
     private readonly AppDbContext _db;
+    private readonly ICacheService _cache;
 
-    public DashboardService(AppDbContext db) => _db = db;
+    public DashboardService(AppDbContext db, ICacheService cache)
+    {
+        _db = db;
+        _cache = cache;
+    }
 
     public async Task<DashboardStatsDto> GetStatsAsync(Guid workspaceId, CancellationToken ct = default)
     {
+        var cacheKey = CacheKeys.DashboardStats(workspaceId);
+        var cached = await _cache.GetAsync<DashboardStatsDto>(cacheKey, ct);
+        if (cached is not null) return cached;
+
         var appCount = await _db.GraphNodes.CountAsync(n => n.WorkspaceId == workspaceId && n.NodeType == GraphNodeType.Application, ct);
         var repoCount = await _db.GraphNodes.CountAsync(n => n.WorkspaceId == workspaceId && n.NodeType == GraphNodeType.Repository, ct);
         var dbCount = await _db.GraphNodes.CountAsync(n => n.WorkspaceId == workspaceId && n.NodeType == GraphNodeType.Database, ct);
@@ -105,7 +115,9 @@ public class DashboardService : IDashboardService
         var avgRisk = await _db.GraphNodes.Where(n => n.WorkspaceId == workspaceId && n.RiskScore != null).AverageAsync(n => (decimal?)n.RiskScore, ct) ?? 0;
         var connectors = await _db.ConnectorInstances.CountAsync(c => c.WorkspaceId == workspaceId && c.Status == ConnectorStatus.Active, ct);
 
-        return new DashboardStatsDto(appCount, repoCount, dbCount, openTickets, pendingApprovals, recommendations, avgRisk, connectors);
+        var stats = new DashboardStatsDto(appCount, repoCount, dbCount, openTickets, pendingApprovals, recommendations, avgRisk, connectors);
+        await _cache.SetAsync(cacheKey, stats, TimeSpan.FromSeconds(60), ct);
+        return stats;
     }
 }
 
@@ -236,5 +248,19 @@ public class IntelligenceService : IIntelligenceService
         await _db.SaveChangesAsync(ct);
         _jobs.EnqueueDatabaseScan(connectorId, databaseName);
         return new DatabaseScanDto(scan.Id, scan.DatabaseName, scan.Status.ToString(), null);
+    }
+
+    public async Task<List<BuildRunDto>> GetBuildRunsAsync(Guid workspaceId, CancellationToken ct = default)
+    {
+        var connectorIds = await _db.ConnectorInstances
+            .Where(c => c.WorkspaceId == workspaceId)
+            .Select(c => c.Id).ToListAsync(ct);
+
+        return await _db.BuildRuns
+            .Where(b => b.ConnectorId != null && connectorIds.Contains(b.ConnectorId.Value))
+            .OrderByDescending(b => b.StartedAt ?? b.CreatedAt)
+            .Take(50)
+            .Select(b => new BuildRunDto(b.Id, b.Status.ToString(), b.Conclusion, b.LogsUrl, b.PullRequestUrl, b.StartedAt, b.CompletedAt))
+            .ToListAsync(ct);
     }
 }

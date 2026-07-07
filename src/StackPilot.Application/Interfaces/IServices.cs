@@ -87,6 +87,12 @@ public interface IIntelligenceService
     Task<List<DatabaseScanDto>> GetDatabaseScansAsync(Guid workspaceId, CancellationToken ct = default);
     Task<RepositoryScanDto> TriggerRepositoryScanAsync(Guid connectorId, string repositoryName, CancellationToken ct = default);
     Task<DatabaseScanDto> TriggerDatabaseScanAsync(Guid connectorId, string databaseName, CancellationToken ct = default);
+    Task<List<BuildRunDto>> GetBuildRunsAsync(Guid workspaceId, CancellationToken ct = default);
+}
+
+public interface IWebhookService
+{
+    Task HandleGitHubEventAsync(string eventType, string payloadJson, CancellationToken ct = default);
 }
 
 public interface IAiService
