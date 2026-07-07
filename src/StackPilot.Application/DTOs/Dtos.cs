@@ -85,7 +85,18 @@ public record PlanPricingDto(
 public record BillingUsageDto(int SeatCount, int WorkspaceCount, int ConnectorCount, long AiTokensUsedThisMonth);
 public record OrganizationBillingDto(
     string Plan, string SubscriptionStatus, DateTime? TrialEndsAt, int? TrialDaysRemaining,
-    PlanLimitsDto Limits, BillingUsageDto Usage, bool StripeConfigured, string? StripeCustomerId);
-public record CreateCheckoutSessionRequest(string Plan, string BillingInterval, string SuccessUrl, string CancelUrl);
+    PlanLimitsDto Limits, BillingUsageDto Usage, bool StripeConfigured, string? StripeCustomerId,
+    bool IsWriteBlocked, string? BlockReason, bool CanOpenCustomerPortal);
+public record CreateCheckoutSessionRequest(string Plan, string BillingInterval, string SuccessUrl, string CancelUrl, string? PromotionCode = null);
+public record CreatePortalSessionRequest(string ReturnUrl);
+public record PortalSessionDto(string Url, bool IsMock);
 public record CheckoutSessionDto(string SessionId, string Url, bool IsMock);
+
+public record PlanEnforcementDto(
+    bool IsWriteBlocked,
+    string? BlockReason,
+    bool SeatsAtLimit,
+    bool WorkspacesAtLimit,
+    bool ConnectorsAtLimit,
+    bool AiTokensAtLimit);
 public record DatabaseScanDto(Guid Id, string DatabaseName, string Status, DateTime? CompletedAt);

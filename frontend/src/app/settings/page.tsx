@@ -48,6 +48,9 @@ interface OrganizationBilling {
     aiTokensUsedThisMonth: number;
   };
   stripeConfigured: boolean;
+  isWriteBlocked: boolean;
+  blockReason?: string;
+  canOpenCustomerPortal: boolean;
 }
 
 const FLAG_LABELS: Record<string, string> = {
@@ -72,6 +75,8 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [portalLoading, setPortalLoading] = useState(false);
+  const [promoCode, setPromoCode] = useState("DESIGNPARTNER20");
 
   useEffect(() => {
     if (!token) { router.push("/login"); return; }
@@ -121,6 +126,7 @@ export default function SettingsPage() {
             billingInterval: "monthly",
             successUrl: `${origin}/settings?checkout=success`,
             cancelUrl: `${origin}/pricing`,
+            promotionCode: promoCode.trim() || undefined,
           }),
         },
         token,
@@ -136,6 +142,32 @@ export default function SettingsPage() {
       showToast(err instanceof Error ? err.message : "Checkout failed", "error");
     } finally {
       setCheckoutLoading(false);
+    }
+  };
+
+  const openCustomerPortal = async () => {
+    if (!orgId) return;
+    setPortalLoading(true);
+    try {
+      const origin = typeof window !== "undefined" ? window.location.origin : "";
+      const session = await api<{ url: string; isMock: boolean }>(
+        `/billing/organizations/${orgId}/portal`,
+        {
+          method: "POST",
+          body: JSON.stringify({ returnUrl: `${origin}/settings` }),
+        },
+        token,
+        orgId
+      );
+      if (session.isMock) {
+        showToast("Stripe not configured — customer portal unavailable in demo mode", "info");
+      } else {
+        window.location.href = session.url;
+      }
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Could not open billing portal", "error");
+    } finally {
+      setPortalLoading(false);
     }
   };
 
@@ -183,6 +215,16 @@ export default function SettingsPage() {
               </div>
               {billing ? (
                 <>
+                  {billing.isWriteBlocked && billing.blockReason && (
+                    <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+                      {billing.blockReason}
+                    </div>
+                  )}
+                  {!billing.isWriteBlocked && billing.usage.connectorCount >= billing.limits.maxConnectors && (
+                    <div className="rounded-lg border border-zinc-700 bg-zinc-800/50 px-4 py-3 text-sm text-zinc-300">
+                      Connector limit reached. Upgrade your plan to add more integrations.
+                    </div>
+                  )}
                   <div className="grid grid-cols-2 gap-4 text-sm">
                     <div>
                       <p className="text-zinc-500">Status</p>
@@ -209,10 +251,28 @@ export default function SettingsPage() {
                       </p>
                     </div>
                   </div>
-                  {billing.plan === "Trial" && (
-                    <div className="flex flex-wrap gap-2 pt-2">
-                      <Button size="sm" disabled={checkoutLoading} onClick={() => startCheckout("Starter")}>Upgrade to Starter</Button>
-                      <Button size="sm" variant="secondary" disabled={checkoutLoading} onClick={() => startCheckout("Professional")}>Upgrade to Professional</Button>
+                  {(billing.plan === "Trial" || billing.isWriteBlocked) && (
+                    <div className="space-y-3 pt-2 border-t border-zinc-800">
+                      <div>
+                        <label className="text-sm text-zinc-400 mb-1 block">Promotion code</label>
+                        <Input
+                          value={promoCode}
+                          onChange={(e) => setPromoCode(e.target.value)}
+                          placeholder="DESIGNPARTNER20"
+                        />
+                        <p className="text-xs text-zinc-500 mt-1">Design partners: 20% off year one with DESIGNPARTNER20</p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button size="sm" disabled={checkoutLoading} onClick={() => startCheckout("Starter")}>Upgrade to Starter</Button>
+                        <Button size="sm" variant="secondary" disabled={checkoutLoading} onClick={() => startCheckout("Professional")}>Upgrade to Professional</Button>
+                      </div>
+                    </div>
+                  )}
+                  {billing.canOpenCustomerPortal && billing.plan !== "Trial" && (
+                    <div className="pt-2">
+                      <Button size="sm" variant="secondary" disabled={portalLoading} onClick={openCustomerPortal}>
+                        {portalLoading ? "Opening portal..." : "Manage billing"}
+                      </Button>
                     </div>
                   )}
                 </>

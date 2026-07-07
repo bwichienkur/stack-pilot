@@ -55,7 +55,7 @@ Limits are defined in code: `PlanCatalog` (`src/StackPilot.Application/Billing/P
 | AI tokens | Sum of `AiActions.TokensUsed` in current UTC month |
 
 **Phase 1 (shipped):** limits exposed in billing API and UI; usage visible in Settings.  
-**Phase 2 (next):** hard enforcement on connector create, member invite, and AI calls when over limit.
+**Phase 2 (shipped):** hard enforcement on connector create, workspace create, and AI calls when over limit or subscription blocked. Returns HTTP **402** with `LimitCode` (`CONNECTOR_LIMIT`, `WORKSPACE_LIMIT`, `AI_TOKEN_LIMIT`, `SUBSCRIPTION_BLOCKED`).
 
 ---
 
@@ -98,8 +98,9 @@ When Stripe is **not** configured, checkout returns a **mock session** URL (for 
 | Method | Path | Auth | Purpose |
 |--------|------|------|---------|
 | GET | `/api/v1/billing/plans` | Public | Published pricing catalog |
-| GET | `/api/v1/billing/organizations/{id}` | Settings manage | Current plan, usage, trial |
-| POST | `/api/v1/billing/organizations/{id}/checkout` | Settings manage | Create Stripe Checkout session |
+| GET | `/api/v1/billing/organizations/{id}` | Settings manage | Current plan, usage, trial, enforcement flags |
+| POST | `/api/v1/billing/organizations/{id}/checkout` | Settings manage | Create Stripe Checkout session (optional `promotionCode`) |
+| POST | `/api/v1/billing/organizations/{id}/portal` | Settings manage | Stripe Customer Portal session |
 | POST | `/api/v1/billing/webhooks/stripe` | Stripe signature | Subscription lifecycle |
 
 ### Webhook events handled
@@ -114,7 +115,8 @@ When Stripe is **not** configured, checkout returns a **mock session** URL (for 
 2. Create Prices: monthly + annual for each (USD).
 3. Add metadata to subscription: `organization_id`, `plan`.
 4. Configure webhook endpoint: `https://{api-host}/api/v1/billing/webhooks/stripe`.
-5. Enable Customer Portal for self-serve invoice history (optional).
+5. Enable Customer Portal for self-serve invoice history and payment method updates.
+6. On API startup (non-Testing env), `EnsureStripeCouponsAsync` creates coupon `designpartner20` and promotion code **DESIGNPARTNER20** (20% off for 12 months) if missing.
 
 ---
 
@@ -158,6 +160,6 @@ Enterprise is **not** self-serve. Flow:
 
 | Phase | Scope |
 |-------|--------|
-| **Q3 (current)** | Pricing page, plan catalog, Stripe Checkout scaffold, webhooks, usage read API |
-| **Q3+** | Limit enforcement, Stripe Customer Portal link, `DESIGNPARTNER20` coupon |
+| **Q3 (shipped)** | Pricing page, plan catalog, Stripe Checkout scaffold, webhooks, usage read API |
+| **Q3+ (shipped)** | Limit enforcement (402), Stripe Customer Portal link, `DESIGNPARTNER20` coupon bootstrap |
 | **Q4** | Invoice PDF, usage-based AI overage, SOC2 billing controls |

@@ -239,12 +239,14 @@ public class OrganizationService : IOrganizationService
     private readonly AppDbContext _db;
     private readonly ITenantContext _tenant;
     private readonly IApprovalGateService _approvalGates;
+    private readonly IPlanLimitService _planLimits;
 
-    public OrganizationService(AppDbContext db, ITenantContext tenant, IApprovalGateService approvalGates)
+    public OrganizationService(AppDbContext db, ITenantContext tenant, IApprovalGateService approvalGates, IPlanLimitService planLimits)
     {
         _db = db;
         _tenant = tenant;
         _approvalGates = approvalGates;
+        _planLimits = planLimits;
     }
 
     public async Task<OrganizationDto> CreateAsync(CreateOrganizationRequest request, Guid userId, CancellationToken ct = default)
@@ -302,6 +304,8 @@ public class OrganizationService : IOrganizationService
 
     public async Task<WorkspaceDto> CreateWorkspaceAsync(Guid orgId, CreateWorkspaceRequest request, CancellationToken ct = default)
     {
+        await _planLimits.EnsureCanCreateWorkspaceAsync(orgId, ct);
+
         var ws = new Workspace
         {
             OrganizationId = orgId,

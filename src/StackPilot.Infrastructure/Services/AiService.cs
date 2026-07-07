@@ -19,9 +19,10 @@ public class AiService : IAiService
     private readonly IAiGovernanceService _governance;
     private readonly IGraphService _graph;
     private readonly IRagIndexService _rag;
+    private readonly IPlanLimitService _planLimits;
 
     public AiService(AppDbContext db, ITenantContext tenant, IAiProvider provider,
-        IAiGovernanceService governance, IGraphService graph, IRagIndexService rag)
+        IAiGovernanceService governance, IGraphService graph, IRagIndexService rag, IPlanLimitService planLimits)
     {
         _db = db;
         _tenant = tenant;
@@ -29,6 +30,7 @@ public class AiService : IAiService
         _governance = governance;
         _graph = graph;
         _rag = rag;
+        _planLimits = planLimits;
     }
 
     public async Task<AiChatResponse> ChatAsync(Guid workspaceId, AiChatRequest request, Guid userId, CancellationToken ct = default)
@@ -58,6 +60,8 @@ public class AiService : IAiService
         var contextStr = string.Join("\n", ragResults.Select(r => $"- [node:{r.GraphNodeId}] {r.Content}")
             .Concat(graphContext.Select(n => $"- {n.NodeType}: {n.Name}")));
 
+        await _planLimits.EnsureCanUseAiAsync(_tenant.OrganizationId ?? Guid.Empty, ct: ct);
+
         var result = await _provider.CompleteAsync(new AiCompletionRequest
         {
             SystemPrompt = """You are StackPilot AI, an enterprise software intelligence assistant. Answer questions about the user's software ecosystem using the provided knowledge graph context. Be precise, cite affected systems, and highlight risks.""",
@@ -79,6 +83,8 @@ public class AiService : IAiService
         var ragResults = await _rag.SearchAsync(ticket.WorkspaceId, $"{ticket.Title} {ticket.Description}", 10, ct);
         var citations = ragResults.Select(r => new AiCitationDto(r.GraphNodeId, r.Content[..Math.Min(200, r.Content.Length)])).ToList();
         var contextBlock = string.Join("\n", ragResults.Select((r, i) => $"[{i + 1}] (nodeId:{r.GraphNodeId}) {r.Content}"));
+
+        await _planLimits.EnsureCanUseAiAsync(ticket.OrganizationId, ct: ct);
 
         var result = await _provider.CompleteAsync(new AiCompletionRequest
         {
@@ -142,6 +148,8 @@ public class AiService : IAiService
                 throw new UnauthorizedAccessException("Human approval is required before AI plan generation");
         }
 
+        await _planLimits.EnsureCanUseAiAsync(ticket.OrganizationId, ct: ct);
+
         var result = await _provider.CompleteAsync(new AiCompletionRequest
         {
             SystemPrompt = """You are a senior architect AI. Generate a detailed technical implementation plan including affected files, APIs, database changes, test plan, security considerations, and rollback plan. Format as structured markdown.""",
@@ -160,6 +168,8 @@ public class AiService : IAiService
     {
         var page = await _db.DocumentationPages.FindAsync([pageId], ct)
             ?? throw new KeyNotFoundException("Documentation page not found");
+
+        await _planLimits.EnsureCanUseAiAsync(page.OrganizationId, ct: ct);
 
         var result = await _provider.CompleteAsync(new AiCompletionRequest
         {

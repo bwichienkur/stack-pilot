@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using StackPilot.Application.Common;
+using StackPilot.Application.Billing;
 
 namespace StackPilot.Api.Middleware;
 
@@ -39,6 +40,7 @@ public class ExceptionMiddleware
             KeyNotFoundException => (HttpStatusCode.NotFound, "NOT_FOUND", ex.Message),
             InvalidOperationException => (HttpStatusCode.BadRequest, "INVALID_OPERATION", ex.Message),
             ArgumentException => (HttpStatusCode.BadRequest, "VALIDATION_ERROR", ex.Message),
+            PlanLimitException ple => (HttpStatusCode.PaymentRequired, ple.LimitCode, ple.Message),
             _ => (HttpStatusCode.InternalServerError, "INTERNAL_ERROR",
                 _env.IsDevelopment() ? ex.Message : "An unexpected error occurred")
         };

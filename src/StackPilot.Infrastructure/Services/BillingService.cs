@@ -13,12 +13,14 @@ public class BillingService : IBillingService
 {
     private readonly AppDbContext _db;
     private readonly IConfiguration _config;
+    private readonly IPlanLimitService _limits;
     private readonly ILogger<BillingService> _logger;
 
-    public BillingService(AppDbContext db, IConfiguration config, ILogger<BillingService> logger)
+    public BillingService(AppDbContext db, IConfiguration config, IPlanLimitService limits, ILogger<BillingService> logger)
     {
         _db = db;
         _config = config;
+        _limits = limits;
         _logger = logger;
     }
 
@@ -32,6 +34,7 @@ public class BillingService : IBillingService
 
         var pricing = PlanCatalog.Get(org.Plan);
         var usage = await GetUsageAsync(organizationId, ct);
+        var enforcement = await _limits.GetEnforcementStatusAsync(organizationId, ct);
         var trialDays = org.TrialEndsAt is null
             ? (int?)null
             : Math.Max(0, (int)Math.Ceiling((org.TrialEndsAt.Value - DateTime.UtcNow).TotalDays));
@@ -44,7 +47,10 @@ public class BillingService : IBillingService
             ToLimitsDto(pricing.Limits),
             usage,
             IsStripeConfigured(),
-            org.StripeCustomerId);
+            org.StripeCustomerId,
+            enforcement.IsWriteBlocked,
+            enforcement.BlockReason,
+            !string.IsNullOrEmpty(org.StripeCustomerId) || IsStripeConfigured());
     }
 
     public async Task<CheckoutSessionDto> CreateCheckoutSessionAsync(
@@ -65,19 +71,21 @@ public class BillingService : IBillingService
         if (!IsStripeConfigured())
         {
             _logger.LogInformation("Stripe not configured; returning mock checkout for org {OrgId} plan {Plan}", organizationId, targetPlan);
+            org.Plan = targetPlan;
+            org.SubscriptionStatus = SubscriptionStatus.Active;
+            org.TrialEndsAt = null;
+            await _db.SaveChangesAsync(ct);
             return new CheckoutSessionDto(
                 $"mock_{Guid.NewGuid():N}",
                 $"{request.SuccessUrl}?mock_checkout=true&plan={targetPlan}",
                 true);
         }
 
-        var stripeSecret = _config["Billing:Stripe:SecretKey"]!;
-        Stripe.StripeConfiguration.ApiKey = stripeSecret;
+        Stripe.StripeConfiguration.ApiKey = _config["Billing:Stripe:SecretKey"]!;
 
         if (string.IsNullOrEmpty(org.StripeCustomerId))
         {
-            var customerService = new Stripe.CustomerService();
-            var customer = await customerService.CreateAsync(new Stripe.CustomerCreateOptions
+            var customer = await new Stripe.CustomerService().CreateAsync(new Stripe.CustomerCreateOptions
             {
                 Email = user.Email,
                 Name = org.Name,
@@ -92,13 +100,13 @@ public class BillingService : IBillingService
         if (string.IsNullOrEmpty(priceId))
             throw new InvalidOperationException($"Stripe price not configured for {targetPlan} ({request.BillingInterval})");
 
-        var sessionService = new Stripe.Checkout.SessionService();
-        var session = await sessionService.CreateAsync(new Stripe.Checkout.SessionCreateOptions
+        var sessionOptions = new Stripe.Checkout.SessionCreateOptions
         {
             Mode = "subscription",
             Customer = org.StripeCustomerId,
             SuccessUrl = request.SuccessUrl,
             CancelUrl = request.CancelUrl,
+            AllowPromotionCodes = string.IsNullOrWhiteSpace(request.PromotionCode),
             LineItems =
             [
                 new Stripe.Checkout.SessionLineItemOptions { Price = priceId, Quantity = 1 }
@@ -116,9 +124,86 @@ public class BillingService : IBillingService
                     ["plan"] = targetPlan.ToString()
                 }
             }
-        }, cancellationToken: ct);
+        };
 
+        var promoCode = request.PromotionCode;
+        if (!string.IsNullOrWhiteSpace(promoCode))
+        {
+            var promotionId = await ResolvePromotionCodeIdAsync(promoCode, ct);
+            if (promotionId is not null)
+            {
+                sessionOptions.Discounts =
+                [
+                    new Stripe.Checkout.SessionDiscountOptions { PromotionCode = promotionId }
+                ];
+                sessionOptions.AllowPromotionCodes = false;
+            }
+        }
+
+        var session = await new Stripe.Checkout.SessionService().CreateAsync(sessionOptions, cancellationToken: ct);
         return new CheckoutSessionDto(session.Id, session.Url, false);
+    }
+
+    public async Task<PortalSessionDto> CreatePortalSessionAsync(
+        Guid organizationId, CreatePortalSessionRequest request, CancellationToken ct = default)
+    {
+        var org = await _db.Organizations.FindAsync([organizationId], ct)
+            ?? throw new KeyNotFoundException("Organization not found");
+
+        if (!IsStripeConfigured() || string.IsNullOrEmpty(org.StripeCustomerId))
+        {
+            return new PortalSessionDto($"{request.ReturnUrl}?portal=mock", true);
+        }
+
+        Stripe.StripeConfiguration.ApiKey = _config["Billing:Stripe:SecretKey"]!;
+        var session = await new Stripe.BillingPortal.SessionService().CreateAsync(
+            new Stripe.BillingPortal.SessionCreateOptions
+            {
+                Customer = org.StripeCustomerId,
+                ReturnUrl = request.ReturnUrl
+            }, cancellationToken: ct);
+
+        return new PortalSessionDto(session.Url, false);
+    }
+
+    public async Task EnsureStripeCouponsAsync(CancellationToken ct = default)
+    {
+        if (!IsStripeConfigured()) return;
+
+        Stripe.StripeConfiguration.ApiKey = _config["Billing:Stripe:SecretKey"]!;
+        var couponId = PlanCatalog.DesignPartnerCouponId;
+
+        try
+        {
+            await new Stripe.CouponService().GetAsync(couponId, cancellationToken: ct);
+        }
+        catch (Stripe.StripeException ex) when (ex.StripeError?.Code == "resource_missing")
+        {
+            await new Stripe.CouponService().CreateAsync(new Stripe.CouponCreateOptions
+            {
+                Id = couponId,
+                PercentOff = PlanCatalog.DesignPartnerYearOneDiscount * 100,
+                Duration = "repeating",
+                DurationInMonths = 12,
+                Name = "Design partner year-one discount"
+            }, cancellationToken: ct);
+            _logger.LogInformation("Created Stripe coupon {CouponId}", couponId);
+        }
+
+        var promoCode = PlanCatalog.DesignPartnerPromotionCode;
+        var promoList = await new Stripe.PromotionCodeService().ListAsync(
+            new Stripe.PromotionCodeListOptions { Code = promoCode, Limit = 1 }, cancellationToken: ct);
+
+        if (promoList.Data.Count == 0)
+        {
+            await new Stripe.PromotionCodeService().CreateAsync(new Stripe.PromotionCodeCreateOptions
+            {
+                Coupon = couponId,
+                Code = promoCode,
+                Active = true
+            }, cancellationToken: ct);
+            _logger.LogInformation("Created Stripe promotion code {PromoCode}", promoCode);
+        }
     }
 
     public async Task HandleStripeWebhookAsync(string json, string signatureHeader, CancellationToken ct = default)
@@ -129,10 +214,8 @@ public class BillingService : IBillingService
             return;
         }
 
-        var webhookSecret = _config["Billing:Stripe:WebhookSecret"]!;
         Stripe.StripeConfiguration.ApiKey = _config["Billing:Stripe:SecretKey"]!;
-
-        var stripeEvent = Stripe.EventUtility.ConstructEvent(json, signatureHeader, webhookSecret);
+        var stripeEvent = Stripe.EventUtility.ConstructEvent(json, signatureHeader, _config["Billing:Stripe:WebhookSecret"]!);
 
         switch (stripeEvent.Type)
         {
@@ -148,6 +231,22 @@ public class BillingService : IBillingService
         }
     }
 
+    private async Task<string?> ResolvePromotionCodeIdAsync(string code, CancellationToken ct)
+    {
+        try
+        {
+            var list = await new Stripe.PromotionCodeService().ListAsync(
+                new Stripe.PromotionCodeListOptions { Code = code, Active = true, Limit = 1 },
+                cancellationToken: ct);
+            return list.Data.FirstOrDefault()?.Id;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to resolve promotion code {Code}", code);
+            return null;
+        }
+    }
+
     private async Task ApplyCheckoutCompletedAsync(Stripe.Checkout.Session session, CancellationToken ct)
     {
         if (!session.Metadata.TryGetValue("organization_id", out var orgIdStr) || !Guid.TryParse(orgIdStr, out var orgId))
@@ -158,6 +257,7 @@ public class BillingService : IBillingService
 
         org.StripeSubscriptionId = session.SubscriptionId;
         org.SubscriptionStatus = SubscriptionStatus.Active;
+        org.TrialEndsAt = null;
         if (session.Metadata.TryGetValue("plan", out var planStr) && Enum.TryParse<OrganizationPlan>(planStr, out var plan))
             org.Plan = plan;
 

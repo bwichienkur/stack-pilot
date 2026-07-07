@@ -133,5 +133,7 @@ public interface IBillingService
     IReadOnlyList<PlanPricingDto> GetPlans();
     Task<OrganizationBillingDto> GetOrganizationBillingAsync(Guid organizationId, CancellationToken ct = default);
     Task<CheckoutSessionDto> CreateCheckoutSessionAsync(Guid organizationId, Guid userId, CreateCheckoutSessionRequest request, CancellationToken ct = default);
+    Task<PortalSessionDto> CreatePortalSessionAsync(Guid organizationId, CreatePortalSessionRequest request, CancellationToken ct = default);
     Task HandleStripeWebhookAsync(string json, string signatureHeader, CancellationToken ct = default);
+    Task EnsureStripeCouponsAsync(CancellationToken ct = default);
 }

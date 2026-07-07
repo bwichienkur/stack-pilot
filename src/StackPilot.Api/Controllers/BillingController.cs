@@ -36,6 +36,13 @@ public class BillingController : ControllerBase
         Guid organizationId, [FromBody] CreateCheckoutSessionRequest request, CancellationToken ct) =>
         Ok(ApiResponse<CheckoutSessionDto>.Ok(await _billing.CreateCheckoutSessionAsync(organizationId, UserId, request, ct)));
 
+    [HttpPost("organizations/{organizationId:guid}/portal")]
+    [Authorize]
+    [RequirePermission(Permissions.SettingsManage)]
+    public async Task<ActionResult<ApiResponse<PortalSessionDto>>> CreatePortal(
+        Guid organizationId, [FromBody] CreatePortalSessionRequest request, CancellationToken ct) =>
+        Ok(ApiResponse<PortalSessionDto>.Ok(await _billing.CreatePortalSessionAsync(organizationId, request, ct)));
+
     [HttpPost("webhooks/stripe")]
     [AllowAnonymous]
     public async Task<IActionResult> StripeWebhook(CancellationToken ct)

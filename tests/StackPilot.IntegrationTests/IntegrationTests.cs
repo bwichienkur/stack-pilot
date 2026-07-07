@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using StackPilot.Application.Common;
 using StackPilot.Application.DTOs;
 using StackPilot.Application.Interfaces;
+using StackPilot.Domain.Enums;
 using StackPilot.Infrastructure.Persistence;
 
 namespace StackPilot.IntegrationTests;
@@ -53,9 +54,13 @@ public class NoOpBackgroundJobService : IBackgroundJobService
 public class AuthIntegrationTests : IClassFixture<StackPilotWebApplicationFactory>
 {
     private readonly HttpClient _client;
+    private readonly StackPilotWebApplicationFactory _factory;
 
-    public AuthIntegrationTests(StackPilotWebApplicationFactory factory) =>
+    public AuthIntegrationTests(StackPilotWebApplicationFactory factory)
+    {
+        _factory = factory;
         _client = factory.CreateClient();
+    }
 
     [Fact]
     public async Task Register_And_Login_ReturnsToken()
@@ -157,14 +162,26 @@ public class AuthIntegrationTests : IClassFixture<StackPilotWebApplicationFactor
     }
 
     [Fact]
-    public async Task CreateOrganization_And_Workspace_Succeeds()
+    public async Task CreateOrganization_Includes_Default_Workspace_And_Upgrade_Allows_More()
     {
         var email = $"org_{Guid.NewGuid():N}@stackpilot.test";
         var (auth, orgId) = await RegisterAndCreateOrg(email);
+        SetAuthHeaders(auth, orgId);
 
-        _client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", auth);
-        _client.DefaultRequestHeaders.Remove("X-Organization-Id");
-        _client.DefaultRequestHeaders.Add("X-Organization-Id", orgId.ToString());
+        var listResponse = await _client.GetAsync($"/api/v1/organizations/{orgId}/workspaces");
+        var listBody = await listResponse.Content.ReadFromJsonAsync<ApiResponse<List<WorkspaceDto>>>();
+        Assert.Single(listBody!.Data!);
+
+        var blocked = await _client.PostAsJsonAsync($"/api/v1/organizations/{orgId}/workspaces", new { name = "Dev", slug = "dev" });
+        Assert.Equal(HttpStatusCode.PaymentRequired, blocked.StatusCode);
+
+        await _client.PostAsJsonAsync($"/api/v1/billing/organizations/{orgId}/checkout", new
+        {
+            plan = "Starter",
+            billingInterval = "monthly",
+            successUrl = "https://app.stackpilot.test/settings",
+            cancelUrl = "https://app.stackpilot.test/pricing"
+        });
 
         var wsResponse = await _client.PostAsJsonAsync($"/api/v1/organizations/{orgId}/workspaces", new { name = "Dev", slug = "dev" });
         Assert.Equal(HttpStatusCode.OK, wsResponse.StatusCode);
@@ -336,6 +353,143 @@ public class AuthIntegrationTests : IClassFixture<StackPilotWebApplicationFactor
     }
 
     [Fact]
+    public async Task BillingOrganization_Returns_Enforcement_Fields()
+    {
+        var (auth, orgId) = await RegisterAndCreateOrg($"billing_{Guid.NewGuid():N}@stackpilot.test");
+        SetAuthHeaders(auth, orgId);
+
+        var response = await _client.GetAsync($"/api/v1/billing/organizations/{orgId}");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var body = await response.Content.ReadFromJsonAsync<ApiResponse<OrganizationBillingDto>>();
+        Assert.Equal("Trial", body!.Data!.Plan);
+        Assert.False(body.Data.IsWriteBlocked);
+        Assert.Null(body.Data.BlockReason);
+        Assert.Equal(3, body.Data.Limits.MaxConnectors);
+    }
+
+    [Fact]
+    public async Task WorkspaceLimit_On_Trial_Returns_402()
+    {
+        var (auth, orgId) = await RegisterAndCreateOrg($"wslimit_{Guid.NewGuid():N}@stackpilot.test");
+        SetAuthHeaders(auth, orgId);
+
+        var response = await _client.PostAsJsonAsync($"/api/v1/organizations/{orgId}/workspaces", new
+        {
+            name = "Second workspace",
+            slug = $"ws-{Guid.NewGuid():N}",
+            description = "Should exceed trial limit"
+        });
+
+        Assert.Equal(HttpStatusCode.PaymentRequired, response.StatusCode);
+        var error = await response.Content.ReadFromJsonAsync<ApiResponse<object>>();
+        Assert.Equal("WORKSPACE_LIMIT", error!.Errors![0].Code);
+    }
+
+    [Fact]
+    public async Task ConnectorLimit_On_Trial_Returns_402()
+    {
+        var (auth, orgId) = await RegisterAndCreateOrg($"conlimit_{Guid.NewGuid():N}@stackpilot.test");
+        SetAuthHeaders(auth, orgId);
+
+        var wsBody = await (await _client.GetAsync($"/api/v1/organizations/{orgId}/workspaces"))
+            .Content.ReadFromJsonAsync<ApiResponse<List<WorkspaceDto>>>();
+        var workspaceId = wsBody!.Data![0].Id;
+        _client.DefaultRequestHeaders.Remove("X-Workspace-Id");
+        _client.DefaultRequestHeaders.Add("X-Workspace-Id", workspaceId.ToString());
+
+        var defs = await (await _client.GetAsync("/api/v1/connectors/definitions"))
+            .Content.ReadFromJsonAsync<ApiResponse<List<ConnectorDefinitionDto>>>();
+        var definitionId = defs!.Data![0].Id;
+
+        for (var i = 0; i < 3; i++)
+        {
+            var ok = await _client.PostAsJsonAsync($"/api/v1/workspaces/{workspaceId}/connectors", new
+            {
+                name = $"Connector {i + 1}",
+                definitionId,
+                configJson = "{}"
+            });
+            Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
+        }
+
+        var blocked = await _client.PostAsJsonAsync($"/api/v1/workspaces/{workspaceId}/connectors", new
+        {
+            name = "Connector 4",
+            definitionId,
+            configJson = "{}"
+        });
+        Assert.Equal(HttpStatusCode.PaymentRequired, blocked.StatusCode);
+        var error = await blocked.Content.ReadFromJsonAsync<ApiResponse<object>>();
+        Assert.Equal("CONNECTOR_LIMIT", error!.Errors![0].Code);
+    }
+
+    [Fact]
+    public async Task TrialExpired_Blocks_Writes()
+    {
+        var (auth, orgId) = await RegisterAndCreateOrg($"expired_{Guid.NewGuid():N}@stackpilot.test");
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var org = await db.Organizations.FindAsync(orgId);
+        org!.TrialEndsAt = DateTime.UtcNow.AddDays(-1);
+        await db.SaveChangesAsync();
+
+        SetAuthHeaders(auth, orgId);
+
+        var response = await _client.PostAsJsonAsync($"/api/v1/organizations/{orgId}/workspaces", new
+        {
+            name = "Blocked workspace",
+            slug = $"blocked-{Guid.NewGuid():N}"
+        });
+        Assert.Equal(HttpStatusCode.PaymentRequired, response.StatusCode);
+        var error = await response.Content.ReadFromJsonAsync<ApiResponse<object>>();
+        Assert.Equal("SUBSCRIPTION_BLOCKED", error!.Errors![0].Code);
+    }
+
+    [Fact]
+    public async Task BillingPortal_Returns_Mock_When_Stripe_Not_Configured()
+    {
+        var (auth, orgId) = await RegisterAndCreateOrg($"portal_{Guid.NewGuid():N}@stackpilot.test");
+        SetAuthHeaders(auth, orgId);
+
+        var response = await _client.PostAsJsonAsync($"/api/v1/billing/organizations/{orgId}/portal", new
+        {
+            returnUrl = "https://app.stackpilot.test/settings"
+        });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var body = await response.Content.ReadFromJsonAsync<ApiResponse<PortalSessionDto>>();
+        Assert.True(body!.Data!.IsMock);
+        Assert.Contains("portal=mock", body.Data.Url);
+    }
+
+    [Fact]
+    public async Task MockCheckout_Upgrades_Plan()
+    {
+        var (auth, orgId) = await RegisterAndCreateOrg($"checkout_{Guid.NewGuid():N}@stackpilot.test");
+        SetAuthHeaders(auth, orgId);
+
+        var checkout = await _client.PostAsJsonAsync($"/api/v1/billing/organizations/{orgId}/checkout", new
+        {
+            plan = "Starter",
+            billingInterval = "monthly",
+            successUrl = "https://app.stackpilot.test/settings",
+            cancelUrl = "https://app.stackpilot.test/pricing",
+            promotionCode = "DESIGNPARTNER20"
+        });
+        Assert.Equal(HttpStatusCode.OK, checkout.StatusCode);
+
+        var session = await checkout.Content.ReadFromJsonAsync<ApiResponse<CheckoutSessionDto>>();
+        Assert.True(session!.Data!.IsMock);
+
+        var billing = await (await _client.GetAsync($"/api/v1/billing/organizations/{orgId}"))
+            .Content.ReadFromJsonAsync<ApiResponse<OrganizationBillingDto>>();
+        Assert.Equal("Starter", billing!.Data!.Plan);
+        Assert.Equal(SubscriptionStatus.Active.ToString(), billing.Data.SubscriptionStatus);
+    }
+
+    [Fact]
     public async Task CrossTenant_Access_Is_Denied()
     {
         var userA = await RegisterAndCreateOrg($"usera_{Guid.NewGuid():N}@stackpilot.test");
@@ -347,6 +501,14 @@ public class AuthIntegrationTests : IClassFixture<StackPilotWebApplicationFactor
 
         var response = await _client.GetAsync($"/api/v1/organizations/{userB.OrgId}/workspaces");
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    private void SetAuthHeaders(string auth, Guid orgId)
+    {
+        _client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", auth);
+        _client.DefaultRequestHeaders.Remove("X-Organization-Id");
+        _client.DefaultRequestHeaders.Add("X-Organization-Id", orgId.ToString());
+        _client.DefaultRequestHeaders.Remove("X-Workspace-Id");
     }
 
     private async Task<string> RegisterAndGetToken(string email)

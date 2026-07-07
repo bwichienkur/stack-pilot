@@ -12,6 +12,7 @@ using StackPilot.Application.Validators;
 using StackPilot.Infrastructure;
 using StackPilot.Infrastructure.Extensions;
 using StackPilot.Infrastructure.Persistence;
+using StackPilot.Application.Interfaces;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -112,6 +113,17 @@ var app = builder.Build();
 
 await DatabaseSeeder.SeedAsync(app.Services);
 await DatabaseSeeder.EnsureConnectorDefinitionsAsync(app.Services);
+if (!app.Environment.IsEnvironment("Testing"))
+{
+    try
+    {
+        await app.Services.GetRequiredService<IBillingService>().EnsureStripeCouponsAsync();
+    }
+    catch (Exception ex)
+    {
+        Log.Warning(ex, "Stripe coupon bootstrap skipped");
+    }
+}
 if (Environment.GetEnvironmentVariable("DEMO_SEED") == "true")
     await DatabaseSeeder.SeedDemoDataAsync(app.Services);
 

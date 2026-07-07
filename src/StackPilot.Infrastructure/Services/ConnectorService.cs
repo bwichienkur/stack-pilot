@@ -20,10 +20,11 @@ public class ConnectorService : IConnectorService
     private readonly IBackgroundJobService _jobs;
     private readonly IAuditService _audit;
     private readonly ICacheService _cache;
+    private readonly IPlanLimitService _planLimits;
 
     public ConnectorService(AppDbContext db, ITenantContext tenant, IConnectorRegistry registry,
         ICredentialEncryptionService encryption, IBackgroundJobService jobs, IAuditService audit,
-        ICacheService cache)
+        ICacheService cache, IPlanLimitService planLimits)
     {
         _db = db;
         _tenant = tenant;
@@ -32,6 +33,7 @@ public class ConnectorService : IConnectorService
         _jobs = jobs;
         _audit = audit;
         _cache = cache;
+        _planLimits = planLimits;
     }
 
     public async Task<List<ConnectorDefinitionDto>> GetDefinitionsAsync(CancellationToken ct = default)
@@ -64,6 +66,8 @@ public class ConnectorService : IConnectorService
             ?? throw new KeyNotFoundException("Workspace not found");
 
         _tenant.SetOrganization(ws.OrganizationId);
+
+        await _planLimits.EnsureCanCreateConnectorAsync(ws.OrganizationId, ct);
 
         var instance = new ConnectorInstance
         {

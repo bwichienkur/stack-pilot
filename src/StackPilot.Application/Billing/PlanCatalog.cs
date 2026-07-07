@@ -27,6 +27,8 @@ public static class PlanCatalog
 {
     public const int TrialDays = 14;
     public const decimal DesignPartnerYearOneDiscount = 0.20m;
+    public const string DesignPartnerCouponId = "designpartner20";
+    public const string DesignPartnerPromotionCode = "DESIGNPARTNER20";
 
     public static IReadOnlyList<PlanPricing> All { get; } =
     [
