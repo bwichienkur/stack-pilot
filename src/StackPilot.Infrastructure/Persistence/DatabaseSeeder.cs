@@ -100,6 +100,13 @@ public static class DatabaseSeeder
                 Description = "Connect to GitLab projects for code scanning and CI/CD tracking",
                 ConfigSchema = """{"type":"object","properties":{"baseUrl":{"type":"string"},"group":{"type":"string"},"projects":{"type":"string"}}}""",
                 Capabilities = """["repository_scan","code_indexing","cicd_tracking"]"""
+            },
+            new ConnectorDefinition
+            {
+                Type = "jira", Name = "Jira",
+                Description = "Connect to Jira Cloud for project and issue tracking",
+                ConfigSchema = """{"type":"object","properties":{"baseUrl":{"type":"string"},"projects":{"type":"string"}}}""",
+                Capabilities = """["ticket_sync"]"""
             }
         };
 
@@ -121,6 +128,19 @@ public static class DatabaseSeeder
                 Description = "Connect to GitLab projects for code scanning and CI/CD tracking",
                 ConfigSchema = """{"type":"object","properties":{"baseUrl":{"type":"string"},"group":{"type":"string"},"projects":{"type":"string"}}}""",
                 Capabilities = """["repository_scan","code_indexing","cicd_tracking"]"""
+            });
+            await db.SaveChangesAsync();
+        }
+
+        if (!await db.ConnectorDefinitions.AnyAsync(d => d.Type == "jira"))
+        {
+            db.ConnectorDefinitions.Add(new ConnectorDefinition
+            {
+                Type = "jira",
+                Name = "Jira",
+                Description = "Connect to Jira Cloud for project and issue tracking",
+                ConfigSchema = """{"type":"object","properties":{"baseUrl":{"type":"string"},"projects":{"type":"string"}}}""",
+                Capabilities = """["ticket_sync"]"""
             });
             await db.SaveChangesAsync();
         }

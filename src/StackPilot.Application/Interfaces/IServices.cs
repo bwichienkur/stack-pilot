@@ -43,6 +43,7 @@ public interface IGraphService
     Task<List<GraphEdgeDto>> GetEdgesAsync(Guid workspaceId, CancellationToken ct = default);
     Task<List<GraphNodeDto>> SearchAsync(Guid workspaceId, GraphSearchRequest request, CancellationToken ct = default);
     Task<ImpactAnalysisDto> AnalyzeImpactAsync(Guid nodeId, CancellationToken ct = default);
+    Task<List<GraphNodeDto>> GetApplicationsAsync(Guid workspaceId, CancellationToken ct = default);
 }
 
 public interface ITicketService
@@ -62,6 +63,12 @@ public interface ITicketService
 public interface IRecommendationService
 {
     Task<PagedResult<RecommendationDto>> GetByWorkspaceAsync(Guid workspaceId, PagedRequest request, CancellationToken ct = default);
+    Task<List<RecommendationDto>> GenerateAsync(Guid workspaceId, CancellationToken ct = default);
+}
+
+public interface INotificationService
+{
+    Task NotifyAsync(string eventType, string message, Guid? organizationId = null, CancellationToken ct = default);
 }
 
 public interface IDocumentationService

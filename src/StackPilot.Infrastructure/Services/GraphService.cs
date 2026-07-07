@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using StackPilot.Application.AI;
 using StackPilot.Application.Common;
 using StackPilot.Application.DTOs;
 using StackPilot.Application.Interfaces;
@@ -87,6 +88,16 @@ public class GraphService : IGraphService
 
     private static GraphNodeDto MapNode(GraphNode n) =>
         new(n.Id, n.NodeType.ToString(), n.Name, n.ExternalId, n.RiskScore, n.MetadataJson);
+
+    public async Task<List<GraphNodeDto>> GetApplicationsAsync(Guid workspaceId, CancellationToken ct = default)
+    {
+        return await _db.GraphNodes
+            .Where(n => n.WorkspaceId == workspaceId && n.NodeType == GraphNodeType.Application)
+            .OrderByDescending(n => n.RiskScore)
+            .ThenBy(n => n.Name)
+            .Select(n => MapNode(n))
+            .ToListAsync(ct);
+    }
 }
 
 public class DashboardService : IDashboardService
@@ -124,8 +135,13 @@ public class DashboardService : IDashboardService
 public class RecommendationService : IRecommendationService
 {
     private readonly AppDbContext _db;
+    private readonly IAiProvider _ai;
 
-    public RecommendationService(AppDbContext db) => _db = db;
+    public RecommendationService(AppDbContext db, IAiProvider ai)
+    {
+        _db = db;
+        _ai = ai;
+    }
 
     public async Task<PagedResult<RecommendationDto>> GetByWorkspaceAsync(Guid workspaceId, PagedRequest request, CancellationToken ct = default)
     {
@@ -139,6 +155,70 @@ public class RecommendationService : IRecommendationService
             .ToListAsync(ct);
 
         return new PagedResult<RecommendationDto> { Items = items, TotalCount = total, Page = request.Page, PageSize = request.PageSize };
+    }
+
+    public async Task<List<RecommendationDto>> GenerateAsync(Guid workspaceId, CancellationToken ct = default)
+    {
+        var orgId = await _db.Workspaces.Where(w => w.Id == workspaceId).Select(w => w.OrganizationId).FirstAsync(ct);
+        var riskyNodes = await _db.GraphNodes
+            .Where(n => n.WorkspaceId == workspaceId && n.RiskScore >= 5)
+            .OrderByDescending(n => n.RiskScore)
+            .Take(5)
+            .ToListAsync(ct);
+
+        var created = new List<RecommendationDto>();
+
+        foreach (var node in riskyNodes)
+        {
+            var exists = await _db.Recommendations.AnyAsync(r =>
+                r.WorkspaceId == workspaceId && r.Summary.Contains(node.Name) && r.Status == RecommendationStatus.Open, ct);
+            if (exists) continue;
+
+            var prompt = $"Analyze this software component and suggest one actionable improvement:\nType: {node.NodeType}\nName: {node.Name}\nRisk: {node.RiskScore}\nMetadata: {node.MetadataJson}";
+            var aiResult = await _ai.CompleteAsync(new StackPilot.Application.AI.AiCompletionRequest
+            {
+                SystemPrompt = "You are a software architect. Respond with a single JSON object: { \"summary\": \"...\", \"type\": \"SecurityRisk|Refactor|Performance|MissingTests\", \"riskLevel\": \"Low|Medium|High|Critical\", \"confidence\": 0.0-1.0, \"reasoning\": \"...\" }",
+                UserPrompt = prompt
+            }, ct);
+
+            var summary = node.Name;
+            var type = RecommendationType.SecurityRisk;
+            var risk = RiskLevel.High;
+            decimal confidence = 0.7m;
+            string? reasoning = aiResult.Content;
+
+            try
+            {
+                using var doc = JsonDocument.Parse(aiResult.Content);
+                summary = doc.RootElement.TryGetProperty("summary", out var s) ? s.GetString() ?? summary : summary;
+                if (doc.RootElement.TryGetProperty("type", out var t) && Enum.TryParse<RecommendationType>(t.GetString(), true, out var parsedType))
+                    type = parsedType;
+                if (doc.RootElement.TryGetProperty("riskLevel", out var rl) && Enum.TryParse<RiskLevel>(rl.GetString(), true, out var parsedRisk))
+                    risk = parsedRisk;
+                if (doc.RootElement.TryGetProperty("confidence", out var c))
+                    confidence = c.GetDecimal();
+                if (doc.RootElement.TryGetProperty("reasoning", out var r))
+                    reasoning = r.GetString();
+            }
+            catch { /* use defaults from AI text */ }
+
+            var rec = new Recommendation
+            {
+                OrganizationId = orgId,
+                WorkspaceId = workspaceId,
+                Type = type,
+                Summary = summary,
+                Reasoning = reasoning,
+                RiskLevel = risk,
+                ConfidenceScore = confidence,
+                AffectedEntitiesJson = JsonSerializer.Serialize(new[] { new { node.Id, node.Name, node.NodeType } })
+            };
+            _db.Recommendations.Add(rec);
+            created.Add(new RecommendationDto(rec.Id, rec.Type.ToString(), rec.Summary, rec.RiskLevel.ToString(), rec.ConfidenceScore, rec.Status.ToString(), rec.CreatedAt));
+        }
+
+        await _db.SaveChangesAsync(ct);
+        return created;
     }
 }
 

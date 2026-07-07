@@ -2,109 +2,86 @@
 
 **AI-powered Enterprise Software Intelligence Platform**
 
-StackPilot connects to your repositories, databases, CI/CD systems, and cloud environments to build a living knowledge graph of your software ecosystem. It enables documentation generation, architecture visualization, AI-driven recommendations, and governed change workflows from business ticket to production deployment.
+StackPilot connects to repositories, databases, and CI/CD systems to build a knowledge graph of your software ecosystem. It supports governed change workflows from business ticket through AI-generated requirements to approval and deployment tracking.
 
-## Architecture
+## What works today
 
-- **Backend:** .NET 8 Clean Architecture modular monolith
-- **Frontend:** Next.js 14, TypeScript, Tailwind CSS, React Flow
-- **Database:** PostgreSQL with EF Core
-- **Queue:** Hangfire (PostgreSQL-backed)
-- **Cache:** Redis
-- **AI:** Abstract provider interface with mock/OpenAI/Anthropic support
+| Area | Status |
+|------|--------|
+| Multi-tenant orgs, workspaces, RBAC | Production-ready foundation |
+| JWT auth + refresh tokens + OIDC SSO scaffold | Implemented |
+| GitHub / GitLab / PostgreSQL / SQL Server connectors | Real integrations |
+| Jira connector | Project sync + connection test |
+| Repository & database scans → knowledge graph | End-to-end via Hangfire workers |
+| RAG-grounded AI requirements + approval queue | Implemented |
+| GitHub Actions webhooks → build runs | Implemented |
+| Slack notifications (org webhook in Settings) | Implemented |
+| Redis caching, OpenTelemetry, audit logs | Implemented |
+| Docker Compose (API + Workers + Frontend + Postgres + Redis) | Implemented |
+
+## What is preview or scaffolded
+
+| Area | Status |
+|------|--------|
+| QA / UAT queues | UI stubs (backend APIs exist) |
+| Desktop (Tauri) / Mobile (Expo) | Scaffolds only |
+| Full Jira bidirectional ticket sync | Not yet implemented |
+| Native pgvector queries | Embeddings stored as JSON today |
+| PostgreSQL RLS | Policies added; defense-in-depth with EF filters |
 
 ## Quick Start
 
-### Prerequisites
-
-- .NET 8 SDK
-- Node.js 18+
-- Docker (for PostgreSQL and Redis)
-
-### 1. Start Infrastructure
+### Docker (recommended)
 
 ```bash
-docker compose up -d
+docker compose up --build
+# Frontend http://localhost:3000 · API http://localhost:5000
 ```
 
-### 2. Run the API
+Apply migrations on first run:
 
 ```bash
-cd src/StackPilot.Api
-dotnet run
+dotnet ef database update --project src/StackPilot.Infrastructure --startup-project src/StackPilot.Api
 ```
 
-API: http://localhost:5000
-Swagger: http://localhost:5000/swagger
-Hangfire Dashboard: http://localhost:5000/hangfire
-
-### 3. Run the Frontend
+### Local development
 
 ```bash
-cd frontend
-npm install
-npm run dev
+docker compose up -d postgres redis
+cd src/StackPilot.Api && dotnet run          # :5000
+cd src/StackPilot.Workers && dotnet run      # background jobs
+cd frontend && npm install && npm run dev    # :3000
 ```
 
-Frontend: http://localhost:3000
+See [docs/ops-runbook.md](docs/ops-runbook.md) for environment variables, health checks, and troubleshooting.
 
-## Project Structure
+## Architecture
 
+- **Backend:** .NET 8 Clean Architecture (`Api`, `Application`, `Domain`, `Infrastructure`, `Workers`)
+- **Frontend:** Next.js 14, TypeScript, Tailwind CSS, React Flow
+- **Database:** PostgreSQL + EF Core (tenant filters + optional RLS)
+- **Queue:** Hangfire (Workers host in production)
+- **Cache:** Redis with in-memory fallback
+- **AI:** Mock / OpenAI / Anthropic via composite provider
+
+## Testing
+
+```bash
+dotnet test tests/StackPilot.IntegrationTests
+cd frontend && npm run test:e2e   # requires API + frontend running
 ```
-StackPilot/
-├── docs/                    # Planning & design documents
-├── src/
-│   ├── StackPilot.Domain/         # Entities, enums, domain logic
-│   ├── StackPilot.Application/   # DTOs, interfaces, connector contracts
-│   ├── StackPilot.Infrastructure/ # EF Core, services, connectors, jobs
-│   ├── StackPilot.Api/           # REST API, middleware, auth
-│   └── StackPilot.Workers/       # Background worker host
-├── frontend/                # Next.js web application
-└── docker-compose.yml       # PostgreSQL + Redis
-```
-
-## MVP Features
-
-- Multi-tenant SaaS foundation (orgs, workspaces, users, RBAC)
-- JWT authentication with OIDC SSO support
-- Real GitHub API integration (repos, languages, workflow runs)
-- GitLab connector
-- Real PostgreSQL and SQL Server schema scanners
-- Connector framework (GitHub, GitLab, SQL Server, PostgreSQL, GitHub Actions)
-- OpenAI + Anthropic AI providers with composite fallback
-- OpenTelemetry tracing and metrics
-- Integration test suite
-- Knowledge graph with impact analysis
-- Ticketing, approvals, AI requirements generation
-- Tauri desktop app scaffold
-- Expo mobile app scaffold
-- Premium dark-mode enterprise UI
 
 ## Documentation
 
-See the `/docs` folder for:
-
-1. [Product Requirements](docs/01-product-requirements.md)
-2. [Architecture](docs/02-architecture.md)
-3. [Module Breakdown](docs/03-module-breakdown.md)
-4. [Database Schema](docs/04-database-schema.md)
-5. [API Design](docs/05-api-design.md)
-6. [AI Workflow Design](docs/06-ai-workflow-design.md)
-7. [Connector Design](docs/07-connector-design.md)
-8. [Background Job Design](docs/08-background-job-design.md)
-9. [Security Model](docs/09-security-model.md)
-10. [UI Page Map](docs/10-ui-page-map.md)
-11. [MVP Roadmap](docs/11-mvp-roadmap.md)
-12. [Desktop App Design](docs/12-desktop-app-design.md)
-13. [Mobile App Design](docs/13-mobile-app-design.md)
+Planning docs live in `/docs`. Operational runbook: [docs/ops-runbook.md](docs/ops-runbook.md).
 
 ## Security
 
-- All API endpoints require JWT authentication
-- Tenant isolation via EF Core global query filters
-- Connector credentials encrypted with AES-256-GCM
-- AI actions fully audited with approval gates
-- No AI direct access to production
+- JWT + RBAC on all protected API routes
+- Tenant isolation via `X-Organization-Id`, EF global filters, and PostgreSQL RLS policies
+- Connector credentials encrypted (AES-256-GCM)
+- AI outputs require human approval before implementation plans
+- Audit logging for mutations
 
 ## License
 

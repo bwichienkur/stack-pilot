@@ -11,6 +11,8 @@ import { cn, api } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 import { isNavEnabled } from "@/lib/feature-flags";
 import { useEffect, useState } from "react";
+import { CommandPalette } from "@/components/command-palette";
+import { AiCopilotPanel } from "@/components/ai-copilot-panel";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -169,6 +171,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         <TopBar />
         <main className="flex-1 overflow-y-auto p-6">{children}</main>
       </div>
+      <CommandPalette />
+      <AiCopilotPanel />
     </div>
   );
 }

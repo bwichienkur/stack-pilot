@@ -326,9 +326,11 @@ public class OrganizationService : IOrganizationService
         if (!string.IsNullOrWhiteSpace(request.Name))
             org.Name = request.Name.Trim();
 
-        if (request.FeatureFlags is not null)
-            org.SettingsJson = JsonSerializer.Serialize(new { featureFlags = request.FeatureFlags });
+        var (flags, slack) = ReadSettings(org.SettingsJson);
+        if (request.FeatureFlags is not null) flags = request.FeatureFlags;
+        if (request.SlackWebhookUrl is not null) slack = request.SlackWebhookUrl;
 
+        org.SettingsJson = JsonSerializer.Serialize(new { featureFlags = flags, slackWebhookUrl = slack });
         await _db.SaveChangesAsync(ct);
         return MapSettings(org);
     }
@@ -348,21 +350,35 @@ public class OrganizationService : IOrganizationService
     private static OrganizationSettingsDto MapSettings(Organization org)
     {
         var flags = OrganizationFeatureFlags.Default;
+        string? slackWebhook = null;
         if (!string.IsNullOrEmpty(org.SettingsJson))
         {
-            try
-            {
-                using var doc = JsonDocument.Parse(org.SettingsJson);
-                if (doc.RootElement.TryGetProperty("featureFlags", out var ff))
-                {
-                    foreach (var prop in ff.EnumerateObject())
-                        flags[prop.Name] = prop.Value.GetBoolean();
-                }
-            }
-            catch { /* use defaults */ }
+            (flags, slackWebhook) = ReadSettings(org.SettingsJson);
         }
 
-        return new OrganizationSettingsDto(org.Id, org.Name, org.Slug, org.Plan.ToString(), flags);
+        return new OrganizationSettingsDto(org.Id, org.Name, org.Slug, org.Plan.ToString(), flags, slackWebhook);
+    }
+
+    private static (Dictionary<string, bool> Flags, string? Slack) ReadSettings(string? settingsJson)
+    {
+        var flags = OrganizationFeatureFlags.Default;
+        string? slack = null;
+        if (string.IsNullOrEmpty(settingsJson)) return (flags, slack);
+
+        try
+        {
+            using var doc = JsonDocument.Parse(settingsJson);
+            if (doc.RootElement.TryGetProperty("featureFlags", out var ff))
+            {
+                foreach (var prop in ff.EnumerateObject())
+                    flags[prop.Name] = prop.Value.GetBoolean();
+            }
+            if (doc.RootElement.TryGetProperty("slackWebhookUrl", out var slackProp))
+                slack = slackProp.GetString();
+        }
+        catch { /* defaults */ }
+
+        return (flags, slack);
     }
 }
 

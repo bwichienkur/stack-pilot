@@ -11,8 +11,8 @@ public record UserDto(Guid Id, string Email, string? FirstName, string? LastName
 public record OrganizationDto(Guid Id, string Name, string Slug, string Plan, bool IsActive);
 public record OrganizationCreatedDto(OrganizationDto Organization, string AccessToken);
 public record CreateOrganizationRequest(string Name, string Slug);
-public record OrganizationSettingsDto(Guid Id, string Name, string Slug, string Plan, Dictionary<string, bool> FeatureFlags);
-public record UpdateOrganizationSettingsRequest(string? Name, Dictionary<string, bool>? FeatureFlags);
+public record OrganizationSettingsDto(Guid Id, string Name, string Slug, string Plan, Dictionary<string, bool> FeatureFlags, string? SlackWebhookUrl = null);
+public record UpdateOrganizationSettingsRequest(string? Name, Dictionary<string, bool>? FeatureFlags, string? SlackWebhookUrl = null);
 public record OrganizationMemberDto(Guid UserId, string Email, string? FirstName, string? LastName, string RoleName, DateTime JoinedAt);
 public record WorkspaceDto(Guid Id, Guid OrganizationId, string Name, string Slug, string? Description, bool IsActive);
 public record CreateWorkspaceRequest(string Name, string Slug, string? Description);

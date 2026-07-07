@@ -58,6 +58,8 @@ public static class DependencyInjection
         services.AddScoped<IDashboardService, DashboardService>();
         services.AddScoped<IIntelligenceService, IntelligenceService>();
         services.AddScoped<IWebhookService, WebhookService>();
+        services.AddScoped<INotificationService, SlackNotificationService>();
+        services.AddHttpClient();
         services.AddScoped<IAiService, AiService>();
         services.AddScoped<IAiGovernanceService, AiGovernanceService>();
         services.AddScoped<IRagIndexService, RagIndexService>();
@@ -80,6 +82,7 @@ public static class DependencyInjection
         services.AddSingleton<IConnector, GitLabRepositoryConnector>();
         services.AddSingleton<IConnector, SqlServerConnector>();
         services.AddSingleton<IConnector, PostgreSQLConnector>();
+        services.AddSingleton<IConnector, JiraConnector>();
         services.AddSingleton<IConnectorRegistry, ConnectorRegistry>();
 
         services.AddScoped<ConnectorSyncJob>();

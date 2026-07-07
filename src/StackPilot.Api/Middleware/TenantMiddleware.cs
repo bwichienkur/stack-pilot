@@ -10,6 +10,7 @@ public class TenantMiddleware
     private static readonly string[] OrgExemptPrefixes =
     [
         "/api/v1/auth",
+        "/api/v1/webhooks",
         "/health",
         "/swagger",
         "/hangfire"
@@ -60,6 +61,7 @@ public class TenantMiddleware
             }
 
             tenantContext.SetOrganization(orgId);
+            await db.SetOrganizationAsync(orgId);
 
             if (context.Request.Headers.TryGetValue("X-Workspace-Id", out var wsHeader) &&
                 Guid.TryParse(wsHeader, out var wsId))
@@ -91,7 +93,14 @@ public class TenantMiddleware
                 tenantContext.SetOrganization(optionalOrgId);
         }
 
-        await _next(context);
+        try
+        {
+            await _next(context);
+        }
+        finally
+        {
+            await db.ClearOrganizationAsync();
+        }
     }
 
     private static bool IsOrgExempt(string path)

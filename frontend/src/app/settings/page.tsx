@@ -16,6 +16,7 @@ interface Settings {
   slug: string;
   plan: string;
   featureFlags: Record<string, boolean>;
+  slackWebhookUrl?: string;
 }
 
 interface Member {
@@ -44,6 +45,7 @@ export default function SettingsPage() {
   const [members, setMembers] = useState<Member[]>([]);
   const [name, setName] = useState("");
   const [flags, setFlags] = useState<Record<string, boolean>>({});
+  const [slackWebhook, setSlackWebhook] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -61,6 +63,7 @@ export default function SettingsPage() {
       setSettings(s);
       setName(s.name);
       setFlags(s.featureFlags || {});
+      setSlackWebhook(s.slackWebhookUrl || "");
       setMembers(m);
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Failed to load settings", "error");
@@ -74,7 +77,7 @@ export default function SettingsPage() {
     try {
       const updated = await api<Settings>(`/organizations/${orgId}/settings`, {
         method: "PUT",
-        body: JSON.stringify({ name, featureFlags: flags }),
+        body: JSON.stringify({ name, featureFlags: flags, slackWebhookUrl: slackWebhook }),
       }, token, orgId);
       setSettings(updated);
       showToast("Settings saved", "success");
@@ -121,6 +124,19 @@ export default function SettingsPage() {
                     />
                   </label>
                 ))}
+              </div>
+            </Card>
+
+            <Card className="p-6 space-y-4">
+              <h2 className="text-lg font-semibold text-zinc-100">Notifications</h2>
+              <div>
+                <label className="text-sm text-zinc-400 mb-1 block">Slack webhook URL</label>
+                <Input
+                  value={slackWebhook}
+                  onChange={(e) => setSlackWebhook(e.target.value)}
+                  placeholder="https://hooks.slack.com/services/..."
+                />
+                <p className="text-xs text-zinc-500 mt-2">Ticket approvals and key events will post to this channel.</p>
               </div>
             </Card>
 

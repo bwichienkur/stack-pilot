@@ -358,6 +358,16 @@ public class GraphController : ControllerBase
     public async Task<ActionResult<ApiResponse<List<BuildRunDto>>>> BuildRuns(Guid workspaceId, CancellationToken ct) =>
         Ok(ApiResponse<List<BuildRunDto>>.Ok(await _intelligence.GetBuildRunsAsync(workspaceId, ct)));
 
+    [HttpGet("workspaces/{workspaceId:guid}/applications")]
+    [RequirePermission(Permissions.GraphRead)]
+    public async Task<ActionResult<ApiResponse<List<GraphNodeDto>>>> Applications(Guid workspaceId, CancellationToken ct) =>
+        Ok(ApiResponse<List<GraphNodeDto>>.Ok(await _graph.GetApplicationsAsync(workspaceId, ct)));
+
+    [HttpPost("workspaces/{workspaceId:guid}/recommendations/generate")]
+    [RequirePermission(Permissions.RecommendationsManage)]
+    public async Task<ActionResult<ApiResponse<List<RecommendationDto>>>> GenerateRecommendations(Guid workspaceId, CancellationToken ct) =>
+        Ok(ApiResponse<List<RecommendationDto>>.Ok(await _recommendations.GenerateAsync(workspaceId, ct)));
+
     [HttpGet("workspaces/{workspaceId:guid}/recommendations")]
     [RequirePermission(Permissions.RecommendationsRead)]
     public async Task<ActionResult<ApiResponse<PagedResult<RecommendationDto>>>> Recommendations(Guid workspaceId, [FromQuery] PagedRequest request, CancellationToken ct)

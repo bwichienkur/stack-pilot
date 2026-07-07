@@ -16,14 +16,16 @@ public class TicketService : ITicketService
     private readonly IAuditService _audit;
     private readonly IBackgroundJobService _jobs;
     private readonly IPermissionValidator _permissions;
+    private readonly INotificationService _notifications;
 
-    public TicketService(AppDbContext db, ITenantContext tenant, IAuditService audit, IBackgroundJobService jobs, IPermissionValidator permissions)
+    public TicketService(AppDbContext db, ITenantContext tenant, IAuditService audit, IBackgroundJobService jobs, IPermissionValidator permissions, INotificationService notifications)
     {
         _db = db;
         _tenant = tenant;
         _audit = audit;
         _jobs = jobs;
         _permissions = permissions;
+        _notifications = notifications;
     }
 
     public async Task<PagedResult<TicketDto>> GetByWorkspaceAsync(Guid workspaceId, PagedRequest request, CancellationToken ct = default)
@@ -157,6 +159,11 @@ public class TicketService : ITicketService
         await _db.SaveChangesAsync(ct);
         await _audit.LogAsync($"approval.{decision.ToString().ToLowerInvariant()}", "Ticket", ticketId,
             JsonSerializer.Serialize(new { request.ApprovalType }), ct);
+
+        await _notifications.NotifyAsync(
+            "Ticket Approval",
+            $"Ticket #{ticket.TicketNumber} \"{ticket.Title}\" was {decision} ({request.ApprovalType})",
+            ticket.OrganizationId, ct);
 
         return new ApprovalDto(approval.Id, approval.ApprovalType.ToString(), approval.ApproverId,
             approval.Decision.ToString(), approval.Comments, approval.DecidedAt);
