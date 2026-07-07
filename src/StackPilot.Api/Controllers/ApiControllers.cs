@@ -291,6 +291,11 @@ public class TicketsController : ControllerBase
     [RequirePermission(Permissions.TicketsApproveRelease)]
     public async Task<ActionResult<ApiResponse<ReleaseScheduleDto>>> ScheduleRelease(Guid id, [FromBody] ScheduleReleaseRequest request, CancellationToken ct) =>
         Ok(ApiResponse<ReleaseScheduleDto>.Ok(await _tickets.ScheduleReleaseAsync(id, request, UserId, ct)));
+
+    [HttpGet("workspaces/{workspaceId:guid}/releases")]
+    [RequirePermission(Permissions.TicketsApproveRelease)]
+    public async Task<ActionResult<ApiResponse<List<ReleaseScheduleDetailDto>>>> Releases(Guid workspaceId, CancellationToken ct) =>
+        Ok(ApiResponse<List<ReleaseScheduleDetailDto>>.Ok(await _tickets.GetScheduledReleasesAsync(workspaceId, ct)));
 }
 
 [ApiController]

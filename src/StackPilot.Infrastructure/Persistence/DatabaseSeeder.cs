@@ -132,7 +132,12 @@ public static class DatabaseSeeder
         };
         db.Users.Add(user);
 
-        var org = new Organization { Name = "Acme Corp", Slug = "acme-demo" };
+        var org = new Organization
+        {
+            Name = "Acme Corp",
+            Slug = "acme-demo",
+            SettingsJson = """{"featureFlags":{"applications":true,"docs":true,"recommendations":true,"qa":true,"uat":true,"deployments":true}}"""
+        };
         db.Organizations.Add(org);
 
         var adminRole = await db.Roles.FirstAsync(r => r.SystemRoleType == SystemRole.ClientAdmin);
@@ -167,6 +172,19 @@ public static class DatabaseSeeder
             WorkspaceId = workspace.Id,
             Title = "Customer Portal Architecture",
             DocType = "Architecture"
+        });
+
+        await db.SaveChangesAsync();
+
+        db.ReleaseSchedules.Add(new ReleaseSchedule
+        {
+            OrganizationId = org.Id,
+            TicketId = ticket.Id,
+            ScheduledAt = DateTime.UtcNow.AddDays(7),
+            ReleaseWindow = "Saturday 02:00–04:00 UTC",
+            Status = ReleaseStatus.Scheduled,
+            CreatedByUserId = user.Id,
+            RollbackPlan = "Revert deployment and restore previous auth configuration"
         });
 
         await db.SaveChangesAsync();

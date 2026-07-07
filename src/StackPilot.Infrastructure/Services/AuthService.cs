@@ -248,7 +248,12 @@ public class OrganizationService : IOrganizationService
 
     public async Task<OrganizationDto> CreateAsync(CreateOrganizationRequest request, Guid userId, CancellationToken ct = default)
     {
-        var org = new Organization { Name = request.Name, Slug = request.Slug.ToLowerInvariant() };
+        var org = new Organization
+        {
+            Name = request.Name,
+            Slug = request.Slug.ToLowerInvariant(),
+            SettingsJson = JsonSerializer.Serialize(new { featureFlags = OrganizationFeatureFlags.Default })
+        };
         _db.Organizations.Add(org);
 
         var adminRole = await _db.Roles.FirstAsync(r => r.SystemRoleType == SystemRole.ClientAdmin, ct);
@@ -392,7 +397,7 @@ public static class OrganizationFeatureFlags
         "applications", "docs", "recommendations", "qa", "uat", "deployments"
     ];
 
-    public static Dictionary<string, bool> Default => All.ToDictionary(k => k, _ => false);
+    public static Dictionary<string, bool> Default => All.ToDictionary(k => k, _ => true);
 }
 
 public class AuditService : IAuditService
