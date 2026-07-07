@@ -94,10 +94,11 @@ jobs:
         run: |
           npm run build
           npm run start &
-          for i in $(seq 1 30); do
-            curl -sf http://localhost:3000 && break
+          for i in $(seq 1 45); do
+            curl -sf http://localhost:3000/login | grep -q "Welcome to StackPilot" && break
             sleep 2
           done
+          curl -sf http://localhost:3000/login | grep -q "Welcome to StackPilot"
         env:
           NEXT_PUBLIC_API_URL: http://localhost:5000/api/v1
 

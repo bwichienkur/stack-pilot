@@ -10,11 +10,11 @@ StackPilot connects to repositories, databases, and CI/CD systems to build a kno
 |------|--------|
 | Multi-tenant orgs, workspaces, RBAC | Production-ready foundation |
 | JWT auth + refresh tokens + OIDC/SAML SSO scaffold | Implemented |
-| GitHub / GitLab / PostgreSQL / SQL Server connectors | Real integrations |
-| Jira connector | Bidirectional issue sync on connector sync |
+| **13 categorized connectors** (see table below) | Test + sync flows implemented |
 | Repository & database scans → knowledge graph | End-to-end via Hangfire workers |
+| Jira + ServiceNow ticket sync | Import on connector sync |
 | RAG-grounded AI requirements + approval gates | Implemented |
-| QA / UAT queues + release calendar | Implemented |
+| QA / UAT queues + release calendar (`/releases`) | Implemented |
 | GitHub Actions webhooks → build runs + PR↔ticket linking | Implemented |
 | pgvector RAG (PostgreSQL) | Native cosine search; JSON fallback in tests |
 | Slack notifications (org webhook in Settings) | Implemented |
@@ -22,12 +22,25 @@ StackPilot connects to repositories, databases, and CI/CD systems to build a kno
 | Docker Compose (pgvector Postgres + API + Workers + Frontend) | Implemented |
 | Playwright golden-path E2E in CI | Implemented |
 
+### Connectors by category
+
+| Category | Connectors |
+|----------|------------|
+| **Source code** | GitHub Repository, GitLab Repository, Azure DevOps Repos, Bitbucket Repository |
+| **Data** | SQL Server, PostgreSQL, MySQL, MongoDB |
+| **CI/CD** | GitHub Actions, Azure Pipelines, Jenkins |
+| **ITSM & work** | Jira, ServiceNow |
+
+Deep code scanning runs today for **GitHub** and **GitLab**; other source connectors sync inventory and enqueue graph nodes. Database connectors run schema/collection scans.
+
 ## What is preview or scaffolded
 
 | Area | Status |
 |------|--------|
 | SAML 2.0 SSO | Metadata + ACS scaffold (no IdP integration yet) |
 | Desktop (Tauri) / Mobile (Expo) | Scaffolds with README |
+| Bidirectional Jira/ServiceNow push-back | Import-only today |
+| Deep repo scan for Azure DevOps / Bitbucket | Inventory sync only |
 | Billing, teams UI, connector marketplace | Not built |
 | Kanban drag-and-drop | Status columns only |
 

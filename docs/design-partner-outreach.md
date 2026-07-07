@@ -46,7 +46,7 @@ Use this runbook for every design partner from first interest through week-one o
 | Time | Activity |
 |------|----------|
 | 0–10 min | Partner creates org, invites team, confirms nav modules visible |
-| 10–25 min | Connect GitHub repo + (optional) Jira project |
+| 10–25 min | Connect GitHub repo + (optional) Jira or ServiceNow project |
 | 25–40 min | Create first real ticket → generate requirements → approval |
 | 40–50 min | Walk through QA/UAT queues and release calendar |
 | 50–60 min | Agree on success metrics and weekly sync time |
