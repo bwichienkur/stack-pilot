@@ -11,6 +11,7 @@ using StackPilot.Api.Middleware;
 using StackPilot.Application.Validators;
 using StackPilot.Infrastructure;
 using StackPilot.Infrastructure.Extensions;
+using StackPilot.Infrastructure.Jobs;
 using StackPilot.Infrastructure.Persistence;
 using StackPilot.Application.Interfaces;
 

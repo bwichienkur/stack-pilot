@@ -68,15 +68,26 @@ The 100-task independent review backlog is **complete**. Post-review completion 
 - [x] Staging deploy workflow
 - [x] Ops runbook
 
+## Post-Roadmap Improvements ✅ (July 2026)
+
+- [x] Public `/pricing`, GitHub webhook HMAC, approval gates API + Settings UI
+- [x] Schedule release UI, ticket state machine, release deploy/verify/rollback
+- [x] Member invites + seat limits, mobile nav drawer, docs viewer
+- [x] Executive dashboard widgets, React Query hooks, error boundary
+- [x] SAML plan gating + dev mode, Azure DevOps/Bitbucket scanners, Jira push-back
+- [x] Audit retention job, GDPR export/delete API, extended RLS, admin console
+- [x] Outbound webhooks, AI code scaffold, AI overage tracking, connector SDK docs
+
 ## Scaffold / Next Production Hardening
 
 | Item | Status |
 |------|--------|
-| SAML full IdP integration (Sustainsys.Saml2) | Scaffold only |
+| SAML full IdP integration | Dev mode + plan gating; production IdP config in Settings |
 | Desktop app (Tauri) | Scaffold — loads web frontend |
-| Mobile app (Expo) | Scaffold — dashboard + API hooks |
-| Billing / multi-region | Pricing + Stripe Checkout scaffold shipped; limit enforcement next |
+| Mobile app (Expo) | Approvals queue read-only view |
+| Billing | Phase 1+2 shipped (enforcement, portal, DESIGNPARTNER20) |
 | Production K8s manifests | Use Docker Compose + staging workflow |
+| SOC 2 Type II | Checklist in [16-soc2-readiness.md](16-soc2-readiness.md) |
 
 ## Post-MVP Roadmap
 

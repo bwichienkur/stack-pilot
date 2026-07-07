@@ -326,6 +326,9 @@ public class AuthIntegrationTests : IClassFixture<StackPilotWebApplicationFactor
         });
         var ticketId = (await ticketResponse.Content.ReadFromJsonAsync<ApiResponse<TicketDto>>())!.Data!.Id;
 
+        await _client.PostAsJsonAsync($"/api/v1/tickets/{ticketId}/qa", new { result = "pass", notes = "Ready for UAT" });
+        await _client.PostAsJsonAsync($"/api/v1/tickets/{ticketId}/uat", new { decision = "Approved", comments = "Accepted for release" });
+
         var scheduleResponse = await _client.PostAsJsonAsync($"/api/v1/tickets/{ticketId}/schedule-release", new
         {
             scheduledAt = DateTime.UtcNow.AddDays(3),
