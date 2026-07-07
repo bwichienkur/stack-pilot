@@ -75,15 +75,24 @@ public static class DependencyInjection
 
         services.AddSingleton<PostgreSqlDatabaseScanner>();
         services.AddSingleton<SqlServerDatabaseScanner>();
+        services.AddSingleton<MySqlDatabaseScanner>();
+        services.AddSingleton<MongoDbDatabaseScanner>();
         services.AddSingleton<IDatabaseScanner, DatabaseScannerRouter>();
         services.AddSingleton<IRepositoryScanner, RepositoryScanner>();
 
         services.AddSingleton<IConnector, GitHubRepositoryConnector>();
         services.AddSingleton<IConnector, GitHubActionsConnector>();
         services.AddSingleton<IConnector, GitLabRepositoryConnector>();
+        services.AddSingleton<IConnector, AzureDevOpsRepositoryConnector>();
+        services.AddSingleton<IConnector, AzurePipelinesConnector>();
+        services.AddSingleton<IConnector, BitbucketRepositoryConnector>();
         services.AddSingleton<IConnector, SqlServerConnector>();
         services.AddSingleton<IConnector, PostgreSQLConnector>();
+        services.AddSingleton<IConnector, MySqlConnectorImpl>();
+        services.AddSingleton<IConnector, MongoDbConnector>();
+        services.AddSingleton<IConnector, JenkinsConnector>();
         services.AddSingleton<IConnector, JiraConnector>();
+        services.AddSingleton<IConnector, ServiceNowConnector>();
         services.AddSingleton<IConnectorRegistry, ConnectorRegistry>();
 
         services.AddScoped<ConnectorSyncJob>();

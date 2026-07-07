@@ -13,7 +13,7 @@ public class JiraConnector : ConnectorBase
     public JiraConnector(IHttpClientFactory httpClientFactory) => _httpClientFactory = httpClientFactory;
 
     public override string Type => "jira";
-    public override ConnectorCapabilities Capabilities => ConnectorCapabilities.None;
+    public override ConnectorCapabilities Capabilities => ConnectorCapabilities.TicketSync;
 
     public override async Task<ConnectionTestResult> TestConnectionAsync(ConnectorContext context, CancellationToken ct = default)
     {

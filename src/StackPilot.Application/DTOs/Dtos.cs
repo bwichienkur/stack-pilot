@@ -17,7 +17,7 @@ public record OrganizationMemberDto(Guid UserId, string Email, string? FirstName
 public record WorkspaceDto(Guid Id, Guid OrganizationId, string Name, string Slug, string? Description, bool IsActive);
 public record CreateWorkspaceRequest(string Name, string Slug, string? Description);
 
-public record ConnectorDefinitionDto(Guid Id, string Type, string Name, string? Description, string ConfigSchema, string[] Capabilities);
+public record ConnectorDefinitionDto(Guid Id, string Type, string Name, string? Description, string Category, string ConfigSchema, string[] Capabilities);
 public record ConnectorInstanceDto(Guid Id, string Name, string Type, string Status, string HealthStatus, DateTime? LastSyncAt, DateTime CreatedAt);
 public record CreateConnectorRequest(string Name, Guid DefinitionId, string ConfigJson, Dictionary<string, string>? Credentials);
 public record SyncHistoryDto(Guid Id, string Status, DateTime StartedAt, DateTime? CompletedAt, int ItemsProcessed);

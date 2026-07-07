@@ -129,6 +129,31 @@ public class AuthIntegrationTests : IClassFixture<StackPilotWebApplicationFactor
         var body = await response.Content.ReadFromJsonAsync<ApiResponse<List<ConnectorDefinitionDto>>>();
         Assert.Contains(body!.Data!, d => d.Type == "gitlab_repository");
         Assert.Contains(body.Data!, d => d.Type == "github_repository");
+        Assert.Contains(body.Data!, d => d.Type == "servicenow");
+        Assert.Contains(body.Data!, d => d.Type == "azure_devops_repository");
+        Assert.Contains(body.Data!, d => d.Type == "mysql");
+        Assert.All(body.Data!, d => Assert.False(string.IsNullOrWhiteSpace(d.Category)));
+    }
+
+    [Fact]
+    public async Task ConnectorDefinitions_AreCategorized()
+    {
+        var email = $"cat_{Guid.NewGuid():N}@stackpilot.test";
+        var auth = await RegisterAndGetToken(email);
+
+        _client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", auth);
+
+        var response = await _client.GetAsync("/api/v1/connectors/definitions");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var body = await response.Content.ReadFromJsonAsync<ApiResponse<List<ConnectorDefinitionDto>>>();
+        var jira = body!.Data!.First(d => d.Type == "jira");
+        var github = body.Data!.First(d => d.Type == "github_repository");
+        var sql = body.Data!.First(d => d.Type == "sql_server");
+
+        Assert.Equal("Itsm", jira.Category);
+        Assert.Equal("SourceCode", github.Category);
+        Assert.Equal("Data", sql.Category);
     }
 
     [Fact]

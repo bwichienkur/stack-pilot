@@ -40,7 +40,8 @@ public class ConnectorService : IConnectorService
         if (cached is not null) return cached;
 
         var defs = await _db.ConnectorDefinitions.ToListAsync(ct);
-        var result = defs.Select(d => new ConnectorDefinitionDto(d.Id, d.Type, d.Name, d.Description, d.ConfigSchema,
+        var result = defs.Select(d => new ConnectorDefinitionDto(d.Id, d.Type, d.Name, d.Description,
+            d.Category.ToString(), d.ConfigSchema,
             JsonSerializer.Deserialize<string[]>(d.Capabilities) ?? Array.Empty<string>())).ToList();
 
         await _cache.SetAsync(CacheKeys.ConnectorDefinitions, result, TimeSpan.FromMinutes(10), ct);

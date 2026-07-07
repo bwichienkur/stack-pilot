@@ -8,6 +8,7 @@ public class ConnectorDefinition : BaseEntity
     public string Type { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
+    public ConnectorCategory Category { get; set; } = ConnectorCategory.SourceCode;
     public string ConfigSchema { get; set; } = "{}";
     public string Capabilities { get; set; } = "[]";
 

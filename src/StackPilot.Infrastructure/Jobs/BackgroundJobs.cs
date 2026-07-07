@@ -93,8 +93,8 @@ public class ConnectorSyncJob
             instance.Status = ConnectorStatus.Active;
             instance.HealthStatus = HealthStatus.Healthy;
 
-            if (instance.Definition.Type == "jira")
-                await SyncJiraTicketsAsync(db, instance, result.Metadata, ct);
+            if (instance.Definition.Type is "jira" or "servicenow")
+                await SyncExternalTicketsAsync(db, instance, result.Metadata, ct);
 
             var repoNames = ExtractRepositoryNames(result.Metadata);
             foreach (var repo in repoNames)
@@ -114,9 +114,13 @@ public class ConnectorSyncJob
                     });
                 }
 
-                if (instance.Definition.Type is "github_repository" or "gitlab_repository")
+                if (instance.Definition.Type is "github_repository" or "gitlab_repository" or "azure_devops_repository" or "bitbucket_repository")
                     jobs.EnqueueRepositoryScan(connectorId, repo);
             }
+
+            var databaseNames = ExtractDatabaseNames(result.Metadata);
+            foreach (var database in databaseNames)
+                jobs.EnqueueDatabaseScan(connectorId, database);
 
             await db.SaveChangesAsync(ct);
             _logger.LogInformation("Connector sync completed for {ConnectorId}: {Items} items", connectorId, result.ItemsProcessed);
@@ -133,7 +137,7 @@ public class ConnectorSyncJob
         }
     }
 
-    private static async Task SyncJiraTicketsAsync(AppDbContext db, ConnectorInstance instance, Dictionary<string, object>? metadata, CancellationToken ct)
+    private static async Task SyncExternalTicketsAsync(AppDbContext db, ConnectorInstance instance, Dictionary<string, object>? metadata, CancellationToken ct)
     {
         if (metadata is null || !metadata.TryGetValue("issues", out var issuesObj)) return;
         if (issuesObj is not List<Dictionary<string, string>> issues) return;
@@ -146,8 +150,8 @@ public class ConnectorSyncJob
 
             var title = issue.GetValueOrDefault("title") ?? externalId;
             var description = issue.GetValueOrDefault("description");
-            var priority = MapJiraPriority(issue.GetValueOrDefault("priority"));
-            var ticketType = MapJiraType(issue.GetValueOrDefault("ticketType"));
+            var priority = MapExternalPriority(issue.GetValueOrDefault("priority"));
+            var ticketType = MapExternalType(issue.GetValueOrDefault("ticketType"));
 
             if (existing is null)
             {
@@ -179,18 +183,19 @@ public class ConnectorSyncJob
         await db.SaveChangesAsync(ct);
     }
 
-    private static TicketPriority MapJiraPriority(string? priority) => priority?.ToLowerInvariant() switch
+    private static TicketPriority MapExternalPriority(string? priority) => priority?.ToLowerInvariant() switch
     {
-        "highest" or "high" => TicketPriority.High,
-        "low" or "lowest" => TicketPriority.Low,
+        "highest" or "high" or "1" or "2" => TicketPriority.High,
+        "low" or "lowest" or "4" or "5" => TicketPriority.Low,
         "critical" => TicketPriority.Critical,
         _ => TicketPriority.Medium
     };
 
-    private static TicketType MapJiraType(string? type) => type?.ToLowerInvariant() switch
+    private static TicketType MapExternalType(string? type) => type?.ToLowerInvariant() switch
     {
-        "bug" => TicketType.Bug,
-        "story" or "epic" => TicketType.NewFeature,
+        "bug" or "incident" => TicketType.Bug,
+        "story" or "epic" or "change_request" => TicketType.NewFeature,
+        "sc_task" or "task" => TicketType.Enhancement,
         _ => TicketType.Enhancement
     };
 
@@ -207,6 +212,16 @@ public class ConnectorSyncJob
         if (metadata.TryGetValue("projects", out var projects) && projects is string[] gitlabProjects)
         {
             foreach (var project in gitlabProjects) yield return project;
+        }
+    }
+
+    private static IEnumerable<string> ExtractDatabaseNames(Dictionary<string, object>? metadata)
+    {
+        if (metadata is null) yield break;
+
+        if (metadata.TryGetValue("databases", out var databases) && databases is string[] dbNames)
+        {
+            foreach (var db in dbNames) yield return db;
         }
     }
 }
