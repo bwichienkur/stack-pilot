@@ -219,6 +219,11 @@ public class TicketsController : ControllerBase
     public async Task<ActionResult<ApiResponse<ApprovalDto>>> Approve(Guid id, [FromBody] SubmitApprovalRequest request, CancellationToken ct) =>
         Ok(ApiResponse<ApprovalDto>.Ok(await _tickets.SubmitApprovalAsync(id, request, UserId, ct)));
 
+    [HttpGet("workspaces/{workspaceId:guid}/approvals/pending")]
+    [RequirePermission(Permissions.TicketsApproveTechnical)]
+    public async Task<ActionResult<ApiResponse<List<TicketDto>>>> PendingApprovals(Guid workspaceId, CancellationToken ct) =>
+        Ok(ApiResponse<List<TicketDto>>.Ok(await _tickets.GetPendingApprovalsAsync(workspaceId, ct)));
+
     [HttpPost("tickets/{id:guid}/qa")]
     [RequirePermission(Permissions.TicketsQa)]
     public async Task<ActionResult<ApiResponse<QaEvidenceDto>>> Qa(Guid id, [FromBody] SubmitQaRequest request, CancellationToken ct) =>
@@ -294,6 +299,16 @@ public class GraphController : ControllerBase
     [RequirePermission(Permissions.GraphRead)]
     public async Task<ActionResult<ApiResponse<List<RepositoryScanDto>>>> Repositories(Guid workspaceId, CancellationToken ct) =>
         Ok(ApiResponse<List<RepositoryScanDto>>.Ok(await _intelligence.GetRepositoryScansAsync(workspaceId, ct)));
+
+    [HttpPost("workspaces/{workspaceId:guid}/scans/repository")]
+    [RequirePermission(Permissions.GraphManage)]
+    public async Task<ActionResult<ApiResponse<RepositoryScanDto>>> TriggerRepositoryScan(Guid workspaceId, [FromBody] TriggerRepositoryScanRequest request, CancellationToken ct) =>
+        Ok(ApiResponse<RepositoryScanDto>.Ok(await _intelligence.TriggerRepositoryScanAsync(request.ConnectorId, request.RepositoryName, ct)));
+
+    [HttpPost("workspaces/{workspaceId:guid}/scans/database")]
+    [RequirePermission(Permissions.GraphManage)]
+    public async Task<ActionResult<ApiResponse<DatabaseScanDto>>> TriggerDatabaseScan(Guid workspaceId, [FromBody] TriggerDatabaseScanRequest request, CancellationToken ct) =>
+        Ok(ApiResponse<DatabaseScanDto>.Ok(await _intelligence.TriggerDatabaseScanAsync(request.ConnectorId, request.DatabaseName, ct)));
 
     [HttpGet("workspaces/{workspaceId:guid}/databases")]
     [RequirePermission(Permissions.GraphRead)]

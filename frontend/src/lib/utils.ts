@@ -23,7 +23,15 @@ export async function api<T>(
   if (workspaceId) headers["X-Workspace-Id"] = workspaceId;
 
   const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
-  const json = await res.json();
+  const json = await res.json().catch(() => ({}));
+  if (res.status === 401) {
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("stackpilot_auth");
+      document.cookie = "stackpilot_auth_hint=; path=/; max-age=0";
+      window.location.href = "/login";
+    }
+    throw new Error("Session expired");
+  }
   if (!res.ok) throw new Error(json.errors?.[0]?.message || "API error");
   return json.data;
 }

@@ -4,8 +4,10 @@ import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { AppLayout } from "@/components/layout/sidebar";
 import { Card, CardContent, CardHeader, CardTitle, Badge, Button } from "@/components/ui";
+import { PageSkeleton } from "@/components/page-skeleton";
 import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/utils";
+import { useToast } from "@/components/ui/toast";
 import { Bot, CheckCircle, XCircle } from "lucide-react";
 
 interface TicketDetail {
@@ -21,15 +23,27 @@ interface TicketDetail {
   implementationPlanJson?: string;
   riskScore?: number;
   confidenceScore?: number;
+  createdAt: string;
+  updatedAt: string;
   comments: { id: string; content: string; createdAt: string }[];
-  approvals: { id: string; approvalType: string; decision: string; comments?: string }[];
+  approvals: { id: string; approvalType: string; decision: string; comments?: string; decidedAt?: string }[];
+}
+
+interface ParsedRequirements {
+  businessSummary?: string;
+  functionalRequirements?: string;
+  nonFunctionalRequirements?: string;
+  acceptanceCriteria?: string;
+  citations?: { nodeId?: string; excerpt?: string }[];
 }
 
 export default function TicketDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { token, orgId } = useAuth();
+  const { token, orgId, workspaceId } = useAuth();
   const router = useRouter();
+  const { showToast } = useToast();
   const [ticket, setTicket] = useState<TicketDetail | null>(null);
+  const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("details");
 
   useEffect(() => {
@@ -39,39 +53,64 @@ export default function TicketDetailPage() {
 
   const loadTicket = async () => {
     try {
-      const data = await api<TicketDetail>(`/tickets/${id}`, {}, token, orgId);
+      const data = await api<TicketDetail>(`/tickets/${id}`, {}, token, orgId, workspaceId);
       setTicket(data);
     } catch (err) {
-      console.error(err);
+      showToast(err instanceof Error ? err.message : "Failed to load ticket", "error");
+    } finally {
+      setLoading(false);
     }
   };
 
   const generateRequirements = async () => {
-    await api(`/tickets/${id}/generate-requirements`, { method: "POST" }, token, orgId);
-    loadTicket();
+    try {
+      await api(`/tickets/${id}/generate-requirements`, { method: "POST" }, token, orgId, workspaceId);
+      showToast("Requirements generated", "success");
+      loadTicket();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to generate requirements", "error");
+    }
   };
 
   const generatePlan = async () => {
-    await api(`/tickets/${id}/generate-plan`, { method: "POST" }, token, orgId);
-    loadTicket();
+    try {
+      await api(`/tickets/${id}/generate-plan`, { method: "POST" }, token, orgId, workspaceId);
+      showToast("Implementation plan generated", "success");
+      loadTicket();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to generate plan", "error");
+    }
   };
 
   const submitApproval = async (decision: string) => {
-    await api(`/tickets/${id}/approvals`, {
-      method: "POST",
-      body: JSON.stringify({ approvalType: "TechnicalReviewer", decision, comments: "" })
-    }, token, orgId);
-    loadTicket();
+    try {
+      await api(`/tickets/${id}/approvals`, {
+        method: "POST",
+        body: JSON.stringify({ approvalType: "TechnicalReviewer", decision, comments: "" }),
+      }, token, orgId, workspaceId);
+      showToast(decision === "Approved" ? "Approved" : "Rejected", "success");
+      loadTicket();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Approval failed", "error");
+    }
   };
 
-  if (!token || !ticket) return null;
+  if (!token) return null;
+  if (loading) return <AppLayout><PageSkeleton rows={4} /></AppLayout>;
+  if (!ticket) return <AppLayout><p className="text-zinc-400">Ticket not found</p></AppLayout>;
+
+  const parsed: ParsedRequirements | null = (() => {
+    if (!ticket.aiRequirementsJson) return null;
+    try { return JSON.parse(ticket.aiRequirementsJson); } catch { return null; }
+  })();
 
   const tabs = ["details", "requirements", "plan", "approvals", "activity"];
+  const canApprove = ticket.status === "AwaitingApproval" || ticket.status === "RequirementsDrafted";
 
   return (
     <AppLayout>
       <div className="space-y-6">
-        <div className="flex items-start justify-between">
+        <div className="flex items-start justify-between flex-wrap gap-4">
           <div>
             <div className="flex items-center gap-3 mb-2">
               <span className="text-zinc-500">#{ticket.ticketNumber}</span>
@@ -81,14 +120,14 @@ export default function TicketDetailPage() {
             <h1 className="text-2xl font-bold text-zinc-100">{ticket.title}</h1>
             <p className="text-zinc-400 mt-1">{ticket.ticketType}</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             {!ticket.aiRequirementsJson && (
               <Button onClick={generateRequirements}><Bot className="h-4 w-4" /> Generate Requirements</Button>
             )}
-            {ticket.aiRequirementsJson && !ticket.implementationPlanJson && (
+            {ticket.aiRequirementsJson && !ticket.implementationPlanJson && ticket.status === "Approved" && (
               <Button onClick={generatePlan}><Bot className="h-4 w-4" /> Generate Plan</Button>
             )}
-            {ticket.status === "AwaitingApproval" && (
+            {canApprove && (
               <>
                 <Button variant="secondary" onClick={() => submitApproval("Approved")}><CheckCircle className="h-4 w-4" /> Approve</Button>
                 <Button variant="destructive" onClick={() => submitApproval("Rejected")}><XCircle className="h-4 w-4" /> Reject</Button>
@@ -132,7 +171,26 @@ export default function TicketDetailPage() {
         {activeTab === "requirements" && ticket.aiRequirementsJson && (
           <Card>
             <CardHeader><CardTitle className="flex items-center gap-2"><Bot className="h-5 w-5 text-indigo-400" /> AI-Generated Requirements</CardTitle></CardHeader>
-            <CardContent><pre className="text-sm text-zinc-300 whitespace-pre-wrap">{ticket.aiRequirementsJson}</pre></CardContent>
+            <CardContent className="space-y-4">
+              {parsed ? (
+                <>
+                  {parsed.businessSummary && <div><h4 className="text-sm text-zinc-400">Business Summary</h4><p className="text-zinc-200 mt-1">{parsed.businessSummary}</p></div>}
+                  {parsed.functionalRequirements && <div><h4 className="text-sm text-zinc-400">Functional</h4><p className="text-zinc-200 mt-1 whitespace-pre-wrap">{parsed.functionalRequirements}</p></div>}
+                  {parsed.nonFunctionalRequirements && <div><h4 className="text-sm text-zinc-400">Non-Functional</h4><p className="text-zinc-200 mt-1 whitespace-pre-wrap">{parsed.nonFunctionalRequirements}</p></div>}
+                  {parsed.acceptanceCriteria && <div><h4 className="text-sm text-zinc-400">Acceptance Criteria</h4><p className="text-zinc-200 mt-1 whitespace-pre-wrap">{parsed.acceptanceCriteria}</p></div>}
+                  {parsed.citations && parsed.citations.length > 0 && (
+                    <div>
+                      <h4 className="text-sm text-zinc-400">Citations</h4>
+                      <ul className="mt-2 space-y-1">{parsed.citations.map((c, i) => (
+                        <li key={i} className="text-xs text-indigo-300">[{c.nodeId || "graph"}] {c.excerpt}</li>
+                      ))}</ul>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <pre className="text-sm text-zinc-300 whitespace-pre-wrap">{ticket.aiRequirementsJson}</pre>
+              )}
+            </CardContent>
           </Card>
         )}
 
@@ -159,6 +217,27 @@ export default function TicketDetailPage() {
                   ))}
                 </div>
               )}
+            </CardContent>
+          </Card>
+        )}
+
+        {activeTab === "activity" && (
+          <Card>
+            <CardContent className="p-6 space-y-4">
+              <div className="text-sm text-zinc-400">Created {new Date(ticket.createdAt).toLocaleString()}</div>
+              <div className="text-sm text-zinc-400">Updated {new Date(ticket.updatedAt).toLocaleString()}</div>
+              {ticket.comments.map((c) => (
+                <div key={c.id} className="border-t border-zinc-800 pt-3">
+                  <p className="text-zinc-200">{c.content}</p>
+                  <p className="text-xs text-zinc-500 mt-1">{new Date(c.createdAt).toLocaleString()}</p>
+                </div>
+              ))}
+              {ticket.approvals.map((a) => (
+                <div key={a.id} className="border-t border-zinc-800 pt-3 text-sm text-zinc-300">
+                  {a.approvalType} — {a.decision}
+                  {a.decidedAt && <span className="text-zinc-500 ml-2">{new Date(a.decidedAt).toLocaleString()}</span>}
+                </div>
+              ))}
             </CardContent>
           </Card>
         )}

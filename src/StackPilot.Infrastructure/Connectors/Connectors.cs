@@ -1,4 +1,6 @@
 using System.Text.Json;
+using Microsoft.Data.SqlClient;
+using Npgsql;
 using StackPilot.Application.Connectors;
 
 namespace StackPilot.Infrastructure.Connectors;
@@ -43,14 +45,22 @@ public class SqlServerConnector : ConnectorBase
     public override string Type => "sql_server";
     public override ConnectorCapabilities Capabilities => ConnectorCapabilities.DatabaseScan;
 
-    public override Task<ConnectionTestResult> TestConnectionAsync(ConnectorContext context, CancellationToken ct = default)
+    public override async Task<ConnectionTestResult> TestConnectionAsync(ConnectorContext context, CancellationToken ct = default)
     {
-        var hasConnStr = context.Credentials.ContainsKey("connection_string");
-        return Task.FromResult(new ConnectionTestResult
+        var connectionString = context.Credentials.GetValueOrDefault("connection_string");
+        if (string.IsNullOrWhiteSpace(connectionString))
+            return new ConnectionTestResult { Success = false, Message = "Connection string is required" };
+
+        try
         {
-            Success = hasConnStr,
-            Message = hasConnStr ? "SQL Server connection configured" : "Connection string is required"
-        });
+            await using var conn = new SqlConnection(connectionString);
+            await conn.OpenAsync(ct);
+            return new ConnectionTestResult { Success = true, Message = $"Connected to SQL Server ({conn.Database})" };
+        }
+        catch (Exception ex)
+        {
+            return new ConnectionTestResult { Success = false, Message = $"SQL Server connection failed: {ex.Message}" };
+        }
     }
 
     public override async Task<SyncResult> SyncAsync(ConnectorContext context, CancellationToken ct = default)
@@ -83,14 +93,22 @@ public class PostgreSQLConnector : ConnectorBase
     public override string Type => "postgresql";
     public override ConnectorCapabilities Capabilities => ConnectorCapabilities.DatabaseScan;
 
-    public override Task<ConnectionTestResult> TestConnectionAsync(ConnectorContext context, CancellationToken ct = default)
+    public override async Task<ConnectionTestResult> TestConnectionAsync(ConnectorContext context, CancellationToken ct = default)
     {
-        var hasConnStr = context.Credentials.ContainsKey("connection_string");
-        return Task.FromResult(new ConnectionTestResult
+        var connectionString = context.Credentials.GetValueOrDefault("connection_string");
+        if (string.IsNullOrWhiteSpace(connectionString))
+            return new ConnectionTestResult { Success = false, Message = "Connection string is required" };
+
+        try
         {
-            Success = hasConnStr,
-            Message = hasConnStr ? "PostgreSQL connection configured" : "Connection string is required"
-        });
+            await using var conn = new NpgsqlConnection(connectionString);
+            await conn.OpenAsync(ct);
+            return new ConnectionTestResult { Success = true, Message = $"Connected to PostgreSQL ({conn.Database})" };
+        }
+        catch (Exception ex)
+        {
+            return new ConnectionTestResult { Success = false, Message = $"PostgreSQL connection failed: {ex.Message}" };
+        }
     }
 
     public override async Task<SyncResult> SyncAsync(ConnectorContext context, CancellationToken ct = default)

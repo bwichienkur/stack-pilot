@@ -15,13 +15,15 @@ public class TicketService : ITicketService
     private readonly ITenantContext _tenant;
     private readonly IAuditService _audit;
     private readonly IBackgroundJobService _jobs;
+    private readonly IPermissionValidator _permissions;
 
-    public TicketService(AppDbContext db, ITenantContext tenant, IAuditService audit, IBackgroundJobService jobs)
+    public TicketService(AppDbContext db, ITenantContext tenant, IAuditService audit, IBackgroundJobService jobs, IPermissionValidator permissions)
     {
         _db = db;
         _tenant = tenant;
         _audit = audit;
         _jobs = jobs;
+        _permissions = permissions;
     }
 
     public async Task<PagedResult<TicketDto>> GetByWorkspaceAsync(Guid workspaceId, PagedRequest request, CancellationToken ct = default)
@@ -113,10 +115,25 @@ public class TicketService : ITicketService
         return new TicketCommentDto(comment.Id, comment.UserId, comment.Content, comment.CreatedAt);
     }
 
+    public async Task<List<TicketDto>> GetPendingApprovalsAsync(Guid workspaceId, CancellationToken ct = default)
+    {
+        var tickets = await _db.Tickets
+            .Where(t => t.WorkspaceId == workspaceId &&
+                (t.Status == TicketStatus.AwaitingApproval || t.Status == TicketStatus.RequirementsDrafted))
+            .OrderByDescending(t => t.CreatedAt)
+            .ToListAsync(ct);
+
+        return tickets.Select(MapTicket).ToList();
+    }
+
     public async Task<ApprovalDto> SubmitApprovalAsync(Guid ticketId, SubmitApprovalRequest request, Guid approverId, CancellationToken ct = default)
     {
         var ticket = await _db.Tickets.FindAsync([ticketId], ct)
             ?? throw new KeyNotFoundException("Ticket not found");
+
+        var approvalType = Enum.Parse<ApprovalType>(request.ApprovalType, true);
+        var requiredPermission = PermissionForApprovalType(approvalType);
+        await _permissions.EnsurePermissionAsync(approverId, ticket.OrganizationId, requiredPermission, ct);
 
         var decision = Enum.Parse<ApprovalDecision>(request.Decision, true);
         var approval = new Approval
@@ -135,7 +152,7 @@ public class TicketService : ITicketService
         if (decision == ApprovalDecision.Approved)
             ticket.Status = TicketStatus.Approved;
         else
-            ticket.Status = TicketStatus.AwaitingApproval;
+            ticket.Status = TicketStatus.RequirementsDrafted;
 
         await _db.SaveChangesAsync(ct);
         await _audit.LogAsync($"approval.{decision.ToString().ToLowerInvariant()}", "Ticket", ticketId,
@@ -220,4 +237,12 @@ public class TicketService : ITicketService
     private static TicketDto MapTicket(Ticket t) => new(
         t.Id, t.TicketNumber, t.Title, t.Description, t.TicketType.ToString(), t.Status.ToString(),
         t.Priority.ToString(), t.RequesterId, t.AssigneeId, t.RiskScore, t.ConfidenceScore, t.CreatedAt, t.UpdatedAt);
+
+    private static string PermissionForApprovalType(ApprovalType type) => type switch
+    {
+        ApprovalType.Security => Permissions.TicketsApproveSecurity,
+        ApprovalType.Database => Permissions.TicketsApproveDatabase,
+        ApprovalType.ProductionRelease => Permissions.TicketsApproveRelease,
+        _ => Permissions.TicketsApproveTechnical
+    };
 }

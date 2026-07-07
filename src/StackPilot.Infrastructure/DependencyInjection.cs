@@ -42,6 +42,8 @@ public static class DependencyInjection
         services.AddScoped<IIntelligenceService, IntelligenceService>();
         services.AddScoped<IAiService, AiService>();
         services.AddScoped<IAiGovernanceService, AiGovernanceService>();
+        services.AddScoped<IRagIndexService, RagIndexService>();
+        services.AddScoped<IPermissionValidator, PermissionValidator>();
         services.AddSingleton<ICredentialEncryptionService, CredentialEncryptionService>();
         services.AddSingleton<IBackgroundJobService, BackgroundJobService>();
 

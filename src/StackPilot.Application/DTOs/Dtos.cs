@@ -1,6 +1,8 @@
 namespace StackPilot.Application.DTOs;
 
 public record LoginRequest(string Email, string Password);
+public record TriggerRepositoryScanRequest(Guid ConnectorId, string RepositoryName);
+public record TriggerDatabaseScanRequest(Guid ConnectorId, string DatabaseName);
 public record RegisterRequest(string Email, string Password, string FirstName, string LastName);
 public record AuthResponse(string AccessToken, string RefreshToken, UserDto User);
 public record RefreshTokenRequest(string RefreshToken);
@@ -57,7 +59,8 @@ public record DocumentationVersionDto(int Version, string ContentMd, string Gene
 
 public record AiChatRequest(string Message, Guid? ConversationId);
 public record AiChatResponse(string Reply, Guid ConversationId, string[]? Citations);
-public record AiRequirementsResult(string BusinessSummary, string FunctionalRequirements, string NonFunctionalRequirements, string AcceptanceCriteria, decimal RiskScore, decimal ConfidenceScore);
+public record AiCitationDto(Guid? NodeId, string Excerpt);
+public record AiRequirementsResult(string BusinessSummary, string FunctionalRequirements, string NonFunctionalRequirements, string AcceptanceCriteria, decimal RiskScore, decimal ConfidenceScore, List<AiCitationDto>? Citations = null);
 
 public record AuditLogDto(Guid Id, string Action, string? EntityType, Guid? EntityId, Guid? UserId, DateTime CreatedAt);
 public record BuildRunDto(Guid Id, string Status, string? Conclusion, string? LogsUrl, string? PullRequestUrl, DateTime? StartedAt, DateTime? CompletedAt);

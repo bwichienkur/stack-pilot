@@ -17,15 +17,17 @@ public class AiService : IAiService
     private readonly IAiProvider _provider;
     private readonly IAiGovernanceService _governance;
     private readonly IGraphService _graph;
+    private readonly IRagIndexService _rag;
 
     public AiService(AppDbContext db, ITenantContext tenant, IAiProvider provider,
-        IAiGovernanceService governance, IGraphService graph)
+        IAiGovernanceService governance, IGraphService graph, IRagIndexService rag)
     {
         _db = db;
         _tenant = tenant;
         _provider = provider;
         _governance = governance;
         _graph = graph;
+        _rag = rag;
     }
 
     public async Task<AiChatResponse> ChatAsync(Guid workspaceId, AiChatRequest request, Guid userId, CancellationToken ct = default)
@@ -48,8 +50,10 @@ public class AiService : IAiService
             _db.AiConversations.Add(conversation);
         }
 
+        var ragResults = await _rag.SearchAsync(workspaceId, request.Message, 5, ct);
         var graphContext = await _graph.SearchAsync(workspaceId, new GraphSearchRequest(request.Message, null, 5), ct);
-        var contextStr = string.Join("\n", graphContext.Select(n => $"- {n.NodeType}: {n.Name}"));
+        var contextStr = string.Join("\n", ragResults.Select(r => $"- [node:{r.GraphNodeId}] {r.Content}")
+            .Concat(graphContext.Select(n => $"- {n.NodeType}: {n.Name}")));
 
         var result = await _provider.CompleteAsync(new AiCompletionRequest
         {
@@ -67,10 +71,14 @@ public class AiService : IAiService
         var ticket = await _db.Tickets.FindAsync([ticketId], ct)
             ?? throw new KeyNotFoundException("Ticket not found");
 
+        var ragResults = await _rag.SearchAsync(ticket.WorkspaceId, $"{ticket.Title} {ticket.Description}", 10, ct);
+        var citations = ragResults.Select(r => new AiCitationDto(r.GraphNodeId, r.Content[..Math.Min(200, r.Content.Length)])).ToList();
+        var contextBlock = string.Join("\n", ragResults.Select((r, i) => $"[{i + 1}] (nodeId:{r.GraphNodeId}) {r.Content}"));
+
         var result = await _provider.CompleteAsync(new AiCompletionRequest
         {
-            SystemPrompt = """You are a business analyst AI. Generate structured requirements from a ticket. Return JSON with keys: businessSummary, functionalRequirements, nonFunctionalRequirements, acceptanceCriteria, riskScore (0-10), confidenceScore (0-1).""",
-            UserPrompt = $"Title: {ticket.Title}\nDescription: {ticket.Description}\nBusiness Justification: {ticket.BusinessJustification}\nType: {ticket.TicketType}"
+            SystemPrompt = """You are a business analyst AI. Generate structured requirements from a ticket using the provided system context. Return JSON with keys: businessSummary, functionalRequirements, nonFunctionalRequirements, acceptanceCriteria, riskScore (0-10), confidenceScore (0-1), citations (array of {nodeId, excerpt} referencing context items).""",
+            UserPrompt = $"Title: {ticket.Title}\nDescription: {ticket.Description}\nBusiness Justification: {ticket.BusinessJustification}\nType: {ticket.TicketType}\n\nRelevant system context:\n{contextBlock}"
         }, ct);
 
         await _governance.RecordActionAsync("generate_requirements", ticket.Title, result.Content, result.Model, result.TokensUsed, true, ct);
@@ -84,13 +92,13 @@ public class AiService : IAiService
                 parsed.GetProperty("nonFunctionalRequirements").GetString() ?? "",
                 parsed.GetProperty("acceptanceCriteria").GetString() ?? "",
                 parsed.TryGetProperty("riskScore", out var rs) ? rs.GetDecimal() : 5m,
-                parsed.TryGetProperty("confidenceScore", out var cs) ? cs.GetDecimal() : 0.7m
-            );
+                parsed.TryGetProperty("confidenceScore", out var cs) ? cs.GetDecimal() : 0.7m,
+                citations);
 
             ticket.AiRequirementsJson = result.Content;
             ticket.RiskScore = requirements.RiskScore;
             ticket.ConfidenceScore = requirements.ConfidenceScore;
-            ticket.Status = TicketStatus.RequirementsDrafted;
+            ticket.Status = TicketStatus.AwaitingApproval;
             await _db.SaveChangesAsync(ct);
 
             return requirements;
@@ -102,10 +110,10 @@ public class AiService : IAiService
                 ticket.Description ?? "To be defined",
                 "Standard non-functional requirements apply",
                 "- Feature works as described\n- No regression in existing functionality",
-                5m, 0.6m);
+                5m, 0.6m, citations);
 
             ticket.AiRequirementsJson = JsonSerializer.Serialize(fallback);
-            ticket.Status = TicketStatus.RequirementsDrafted;
+            ticket.Status = TicketStatus.AwaitingApproval;
             ticket.RiskScore = 5m;
             ticket.ConfidenceScore = 0.6m;
             await _db.SaveChangesAsync(ct);
@@ -117,6 +125,17 @@ public class AiService : IAiService
     {
         var ticket = await _db.Tickets.FindAsync([ticketId], ct)
             ?? throw new KeyNotFoundException("Ticket not found");
+
+        if (ticket.Status != TicketStatus.Approved)
+            throw new UnauthorizedAccessException("Ticket must be approved before generating an implementation plan");
+
+        if (await _governance.RequiresApprovalAsync("generate_plan"))
+        {
+            var hasApproval = await _db.Approvals.AnyAsync(a =>
+                a.TicketId == ticketId && a.Decision == ApprovalDecision.Approved, ct);
+            if (!hasApproval)
+                throw new UnauthorizedAccessException("Human approval is required before AI plan generation");
+        }
 
         var result = await _provider.CompleteAsync(new AiCompletionRequest
         {
@@ -169,7 +188,7 @@ public class AiGovernanceService : IAiGovernanceService
 
     private static readonly HashSet<string> ApprovalRequired = new(StringComparer.OrdinalIgnoreCase)
     {
-        "generate_code", "create_branch", "write_file", "create_migration", "create_pr", "trigger_build", "deploy"
+        "generate_code", "create_branch", "write_file", "create_migration", "create_pr", "trigger_build", "deploy", "generate_plan"
     };
 
     public AiGovernanceService(AppDbContext db, ITenantContext tenant)

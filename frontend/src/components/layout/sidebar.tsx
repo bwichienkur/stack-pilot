@@ -7,9 +7,9 @@ import {
   Ticket, CheckCircle, FlaskConical, Rocket, ScrollText, Settings,
   Plug, Bot, ChevronLeft, ChevronRight, LogOut
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, api } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -97,10 +97,56 @@ export function Sidebar() {
   );
 }
 
+export function OrgWorkspaceSwitcher() {
+  const { token, orgId, workspaceId, setOrg, setWorkspace } = useAuth();
+  const [orgs, setOrgs] = useState<{ id: string; name: string }[]>([]);
+  const [workspaces, setWorkspaces] = useState<{ id: string; name: string }[]>([]);
+
+  useEffect(() => {
+    if (!token) return;
+    api<{ id: string; name: string }[]>("/organizations", {}, token)
+      .then(setOrgs)
+      .catch(() => {});
+  }, [token]);
+
+  useEffect(() => {
+    if (!token || !orgId) return;
+    api<{ id: string; name: string }[]>(`/organizations/${orgId}/workspaces`, {}, token, orgId)
+      .then((ws) => {
+        setWorkspaces(ws);
+        if (!workspaceId && ws.length > 0) setWorkspace(ws[0].id);
+      })
+      .catch(() => {});
+  }, [token, orgId, workspaceId, setWorkspace]);
+
+  if (!token || orgs.length === 0) return null;
+
+  return (
+    <div className="flex items-center gap-2">
+      <select
+        value={orgId || ""}
+        onChange={(e) => setOrg(e.target.value)}
+        className="h-8 rounded-md border border-zinc-700 bg-zinc-900 px-2 text-xs text-zinc-300"
+      >
+        {orgs.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+      </select>
+      {workspaces.length > 0 && (
+        <select
+          value={workspaceId || ""}
+          onChange={(e) => setWorkspace(e.target.value)}
+          className="h-8 rounded-md border border-zinc-700 bg-zinc-900 px-2 text-xs text-zinc-300"
+        >
+          {workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+        </select>
+      )}
+    </div>
+  );
+}
+
 export function TopBar() {
   return (
     <header className="h-16 border-b border-zinc-800 bg-zinc-950/80 backdrop-blur-sm flex items-center justify-between px-6">
-      <div className="text-sm text-zinc-500">StackPilot Workspace</div>
+      <OrgWorkspaceSwitcher />
       <div className="flex items-center gap-3">
         <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
         <span className="text-xs text-zinc-400">All systems operational</span>

@@ -227,6 +227,9 @@ public class RepositoryScanJob
             });
         }
 
+        var rag = scope.ServiceProvider.GetRequiredService<IRagIndexService>();
+        await rag.IndexRepositoryScanAsync(instance.OrganizationId, instance.WorkspaceId, repoNode?.Id, repositoryName, scan.ResultsJson ?? "{}", ct);
+
         await db.SaveChangesAsync(ct);
     }
 }

@@ -48,6 +48,7 @@ public interface ITicketService
     Task<TicketDto?> UpdateAsync(Guid ticketId, UpdateTicketRequest request, CancellationToken ct = default);
     Task<TicketCommentDto> AddCommentAsync(Guid ticketId, AddCommentRequest request, Guid userId, CancellationToken ct = default);
     Task<ApprovalDto> SubmitApprovalAsync(Guid ticketId, SubmitApprovalRequest request, Guid approverId, CancellationToken ct = default);
+    Task<List<TicketDto>> GetPendingApprovalsAsync(Guid workspaceId, CancellationToken ct = default);
     Task<QaEvidenceDto> SubmitQaAsync(Guid ticketId, SubmitQaRequest request, Guid testerId, CancellationToken ct = default);
     Task<UatDecisionDto> SubmitUatAsync(Guid ticketId, SubmitUatRequest request, Guid approverId, CancellationToken ct = default);
     Task<ReleaseScheduleDto> ScheduleReleaseAsync(Guid ticketId, ScheduleReleaseRequest request, Guid userId, CancellationToken ct = default);

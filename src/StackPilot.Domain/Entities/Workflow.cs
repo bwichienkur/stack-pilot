@@ -70,6 +70,16 @@ public class Approval : BaseEntity, ITenantEntity
     public ApplicationUser Approver { get; set; } = null!;
 }
 
+public class ApprovalGate : BaseEntity, ITenantEntity
+{
+    public Guid OrganizationId { get; set; }
+    public Guid? WorkspaceId { get; set; }
+    public ApprovalType GateType { get; set; }
+    public string RequiredPermission { get; set; } = string.Empty;
+    public int SortOrder { get; set; }
+    public bool IsEnabled { get; set; } = true;
+}
+
 public class QaEvidence : BaseEntity
 {
     public Guid TicketId { get; set; }

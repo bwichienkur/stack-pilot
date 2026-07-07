@@ -45,6 +45,8 @@ public class AppDbContext : DbContext
     public DbSet<BuildRun> BuildRuns => Set<BuildRun>();
     public DbSet<AiAction> AiActions => Set<AiAction>();
     public DbSet<AiConversation> AiConversations => Set<AiConversation>();
+    public DbSet<GraphChunk> GraphChunks => Set<GraphChunk>();
+    public DbSet<ApprovalGate> ApprovalGates => Set<ApprovalGate>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -144,6 +146,19 @@ public class AppDbContext : DbContext
         TenantFilter(modelBuilder.Entity<BuildRun>());
         TenantFilter(modelBuilder.Entity<Team>());
         TenantFilter(modelBuilder.Entity<EnvironmentConfig>());
+        TenantFilter(modelBuilder.Entity<GraphChunk>());
+        TenantFilter(modelBuilder.Entity<ApprovalGate>());
+
+        modelBuilder.Entity<GraphChunk>(e =>
+        {
+            e.HasIndex(x => new { x.OrganizationId, x.WorkspaceId });
+            e.HasOne(x => x.GraphNode).WithMany().HasForeignKey(x => x.GraphNodeId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<ApprovalGate>(e =>
+        {
+            e.HasIndex(x => new { x.OrganizationId, x.GateType });
+        });
 
         modelBuilder.Entity<AuditLog>().HasQueryFilter(e =>
             !_tenantContext.IsTenantFilterEnabled ||

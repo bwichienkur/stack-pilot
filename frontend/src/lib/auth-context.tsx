@@ -56,6 +56,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(t);
     setUser(u);
     persist({ token: t, user: u });
+    if (typeof document !== "undefined") {
+      document.cookie = "stackpilot_auth_hint=1; path=/; max-age=28800; SameSite=Lax";
+    }
   };
 
   const setOrg = (id: string) => {
@@ -74,6 +77,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setOrgId(null);
     setWorkspaceId(null);
     localStorage.removeItem("stackpilot_auth");
+    if (typeof document !== "undefined") {
+      document.cookie = "stackpilot_auth_hint=; path=/; max-age=0";
+    }
   };
 
   return (

@@ -93,3 +93,15 @@ public class Recommendation : BaseEntity, ITenantEntity, IWorkspaceScoped
     public string? RollbackPlan { get; set; }
     public RecommendationStatus Status { get; set; } = RecommendationStatus.Open;
 }
+
+public class GraphChunk : BaseEntity, ITenantEntity, IWorkspaceScoped
+{
+    public Guid OrganizationId { get; set; }
+    public Guid? WorkspaceId { get; set; }
+    public Guid? GraphNodeId { get; set; }
+    public string Content { get; set; } = string.Empty;
+    public string? SourceType { get; set; }
+    public string EmbeddingJson { get; set; } = "[]";
+
+    public GraphNode? GraphNode { get; set; }
+}
