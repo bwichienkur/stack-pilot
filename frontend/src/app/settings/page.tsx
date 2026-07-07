@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { AppLayout } from "@/components/layout/sidebar";
 import { Card, Button, Input } from "@/components/ui";
 import { PageSkeleton } from "@/components/page-skeleton";
@@ -28,6 +29,27 @@ interface Member {
   joinedAt: string;
 }
 
+interface OrganizationBilling {
+  plan: string;
+  subscriptionStatus: string;
+  trialEndsAt?: string;
+  trialDaysRemaining?: number;
+  limits: {
+    includedSeats: number;
+    maxSeats: number;
+    maxWorkspaces: number;
+    maxConnectors: number;
+    monthlyAiTokenBudget: number;
+  };
+  usage: {
+    seatCount: number;
+    workspaceCount: number;
+    connectorCount: number;
+    aiTokensUsedThisMonth: number;
+  };
+  stripeConfigured: boolean;
+}
+
 const FLAG_LABELS: Record<string, string> = {
   applications: "Applications module",
   docs: "Documentation hub",
@@ -42,25 +64,38 @@ export default function SettingsPage() {
   const router = useRouter();
   const { showToast } = useToast();
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [billing, setBilling] = useState<OrganizationBilling | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [name, setName] = useState("");
   const [flags, setFlags] = useState<Record<string, boolean>>({});
   const [slackWebhook, setSlackWebhook] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
 
   useEffect(() => {
     if (!token) { router.push("/login"); return; }
     if (orgId) load();
   }, [token, orgId]);
 
+  useEffect(() => {
+    if (!billing || !token || !orgId || typeof window === "undefined") return;
+    const upgrade = new URLSearchParams(window.location.search).get("upgrade");
+    if (!upgrade) return;
+    const plan = upgrade.charAt(0).toUpperCase() + upgrade.slice(1);
+    window.history.replaceState(null, "", "/settings");
+    void startCheckout(plan);
+  }, [billing, token, orgId]);
+
   const load = async () => {
     try {
-      const [s, m] = await Promise.all([
+      const [s, m, b] = await Promise.all([
         api<Settings>(`/organizations/${orgId}/settings`, {}, token, orgId),
         api<Member[]>(`/organizations/${orgId}/members`, {}, token, orgId).catch(() => []),
+        api<OrganizationBilling>(`/billing/organizations/${orgId}`, {}, token, orgId).catch(() => null),
       ]);
       setSettings(s);
+      setBilling(b);
       setName(s.name);
       setFlags(s.featureFlags || {});
       setSlackWebhook(s.slackWebhookUrl || "");
@@ -69,6 +104,38 @@ export default function SettingsPage() {
       showToast(err instanceof Error ? err.message : "Failed to load settings", "error");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const startCheckout = async (plan: string) => {
+    if (!orgId || plan === "Trial" || plan === "Enterprise") return;
+    setCheckoutLoading(true);
+    try {
+      const origin = typeof window !== "undefined" ? window.location.origin : "";
+      const session = await api<{ url: string; isMock: boolean }>(
+        `/billing/organizations/${orgId}/checkout`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            plan,
+            billingInterval: "monthly",
+            successUrl: `${origin}/settings?checkout=success`,
+            cancelUrl: `${origin}/pricing`,
+          }),
+        },
+        token,
+        orgId
+      );
+      if (session.isMock) {
+        showToast("Stripe not configured — mock checkout complete for demo", "success");
+        await load();
+      } else {
+        window.location.href = session.url;
+      }
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Checkout failed", "error");
+    } finally {
+      setCheckoutLoading(false);
     }
   };
 
@@ -107,6 +174,51 @@ export default function SettingsPage() {
                 <Input value={name} onChange={(e) => setName(e.target.value)} />
               </div>
               <p className="text-xs text-zinc-500">Slug: {settings?.slug} · Plan: {settings?.plan}</p>
+            </Card>
+
+            <Card className="p-6 space-y-4">
+              <div className="flex items-center justify-between gap-4">
+                <h2 className="text-lg font-semibold text-zinc-100">Billing</h2>
+                <Link href="/pricing" className="text-sm text-indigo-400 hover:text-indigo-300">View all plans</Link>
+              </div>
+              {billing ? (
+                <>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <p className="text-zinc-500">Status</p>
+                      <p className="text-zinc-200">{billing.subscriptionStatus}</p>
+                    </div>
+                    {billing.trialDaysRemaining != null && billing.plan === "Trial" && (
+                      <div>
+                        <p className="text-zinc-500">Trial remaining</p>
+                        <p className="text-zinc-200">{billing.trialDaysRemaining} days</p>
+                      </div>
+                    )}
+                    <div>
+                      <p className="text-zinc-500">Seats</p>
+                      <p className="text-zinc-200">{billing.usage.seatCount} / {billing.limits.maxSeats}</p>
+                    </div>
+                    <div>
+                      <p className="text-zinc-500">Connectors</p>
+                      <p className="text-zinc-200">{billing.usage.connectorCount} / {billing.limits.maxConnectors}</p>
+                    </div>
+                    <div className="col-span-2">
+                      <p className="text-zinc-500">AI tokens this month</p>
+                      <p className="text-zinc-200">
+                        {billing.usage.aiTokensUsedThisMonth.toLocaleString()} / {billing.limits.monthlyAiTokenBudget.toLocaleString()}
+                      </p>
+                    </div>
+                  </div>
+                  {billing.plan === "Trial" && (
+                    <div className="flex flex-wrap gap-2 pt-2">
+                      <Button size="sm" disabled={checkoutLoading} onClick={() => startCheckout("Starter")}>Upgrade to Starter</Button>
+                      <Button size="sm" variant="secondary" disabled={checkoutLoading} onClick={() => startCheckout("Professional")}>Upgrade to Professional</Button>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p className="text-sm text-zinc-500">Billing details unavailable.</p>
+              )}
             </Card>
 
             <Card className="p-6 space-y-4">

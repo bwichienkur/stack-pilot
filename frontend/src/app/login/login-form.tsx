@@ -118,13 +118,16 @@ export default function LoginForm() {
             </div>
           )}
 
-          <div className="mt-4 text-center">
+          <div className="mt-4 text-center space-y-2">
             <button
               onClick={() => setIsRegister(!isRegister)}
-              className="text-sm text-indigo-400 hover:text-indigo-300 transition-colors"
+              className="text-sm text-indigo-400 hover:text-indigo-300 transition-colors block w-full"
             >
               {isRegister ? "Already have an account? Sign in" : "Need an account? Register"}
             </button>
+            <a href="/pricing" className="text-xs text-zinc-500 hover:text-zinc-400 transition-colors">
+              View pricing
+            </a>
           </div>
         </CardContent>
       </Card>

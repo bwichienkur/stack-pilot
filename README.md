@@ -41,7 +41,7 @@ Deep code scanning runs today for **GitHub** and **GitLab**; other source connec
 | Desktop (Tauri) / Mobile (Expo) | Scaffolds with README |
 | Bidirectional Jira/ServiceNow push-back | Import-only today |
 | Deep repo scan for Azure DevOps / Bitbucket | Inventory sync only |
-| Billing, teams UI, connector marketplace | Not built |
+| Billing, teams UI, connector marketplace | Pricing page + Stripe scaffold; enforcement phase 2 |
 | Kanban drag-and-drop | Status columns only |
 
 ## Quick Start
@@ -99,6 +99,7 @@ CI runs backend tests, frontend build, and Playwright golden-path E2E on every p
 | Doc | Purpose |
 |-----|---------|
 | [DEMO.md](DEMO.md) | Repeatable 5-minute demo script |
+| [docs/14-billing-pricing.md](docs/14-billing-pricing.md) | Pricing tiers, Stripe setup, design-partner conversion |
 | [docs/design-partner-outreach.md](docs/design-partner-outreach.md) | Pilot recruitment + first-call playbook |
 | [docs/ops-runbook.md](docs/ops-runbook.md) | Operations and troubleshooting |
 | `/docs` planning files | Architecture and product specs |

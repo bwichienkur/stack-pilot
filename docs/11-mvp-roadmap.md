@@ -75,7 +75,7 @@ The 100-task independent review backlog is **complete**. Post-review completion 
 | SAML full IdP integration (Sustainsys.Saml2) | Scaffold only |
 | Desktop app (Tauri) | Scaffold — loads web frontend |
 | Mobile app (Expo) | Scaffold — dashboard + API hooks |
-| Billing / multi-region | Not started |
+| Billing / multi-region | Pricing + Stripe Checkout scaffold shipped; limit enforcement next |
 | Production K8s manifests | Use Docker Compose + staging workflow |
 
 ## Post-MVP Roadmap

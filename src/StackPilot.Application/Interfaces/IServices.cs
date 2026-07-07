@@ -127,3 +127,11 @@ public interface IBackgroundJobService
     string EnqueueDatabaseScan(Guid connectorId, string databaseName);
     string EnqueueGenerateRequirements(Guid ticketId);
 }
+
+public interface IBillingService
+{
+    IReadOnlyList<PlanPricingDto> GetPlans();
+    Task<OrganizationBillingDto> GetOrganizationBillingAsync(Guid organizationId, CancellationToken ct = default);
+    Task<CheckoutSessionDto> CreateCheckoutSessionAsync(Guid organizationId, Guid userId, CreateCheckoutSessionRequest request, CancellationToken ct = default);
+    Task HandleStripeWebhookAsync(string json, string signatureHeader, CancellationToken ct = default);
+}

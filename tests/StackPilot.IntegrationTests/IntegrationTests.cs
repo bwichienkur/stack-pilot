@@ -324,6 +324,18 @@ public class AuthIntegrationTests : IClassFixture<StackPilotWebApplicationFactor
     }
 
     [Fact]
+    public async Task BillingPlans_Returns_All_Tiers()
+    {
+        var response = await _client.GetAsync("/api/v1/billing/plans");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var body = await response.Content.ReadFromJsonAsync<ApiResponse<List<PlanPricingDto>>>();
+        Assert.Equal(4, body!.Data!.Count);
+        Assert.Contains(body.Data, p => p.Plan == "Starter" && p.MonthlyPriceUsd == 349m);
+        Assert.Contains(body.Data, p => p.Plan == "Enterprise" && p.MonthlyPriceUsd == null);
+    }
+
+    [Fact]
     public async Task CrossTenant_Access_Is_Denied()
     {
         var userA = await RegisterAndCreateOrg($"usera_{Guid.NewGuid():N}@stackpilot.test");

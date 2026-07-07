@@ -8,6 +8,15 @@ public enum OrganizationPlan
     Enterprise
 }
 
+public enum SubscriptionStatus
+{
+    Trialing,
+    Active,
+    PastDue,
+    Canceled,
+    Paused
+}
+
 public enum TicketType
 {
     Bug,

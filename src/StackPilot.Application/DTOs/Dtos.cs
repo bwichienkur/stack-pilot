@@ -77,4 +77,15 @@ public record DashboardStatsDto(
     int PendingApprovals, int OpenRecommendations, decimal AverageRiskScore, int ActiveConnectors);
 
 public record RepositoryScanDto(Guid Id, string RepositoryName, string Status, DateTime? CompletedAt);
+
+public record PlanLimitsDto(int IncludedSeats, int MaxSeats, int MaxWorkspaces, int MaxConnectors, long MonthlyAiTokenBudget, int AuditRetentionDays, bool SamlSso, bool PrioritySupport);
+public record PlanPricingDto(
+    string Plan, string Name, string Tagline, decimal? MonthlyPriceUsd, decimal? AnnualPriceUsd,
+    decimal AdditionalSeatPriceUsd, string BillingModel, PlanLimitsDto Limits, string[] Highlights);
+public record BillingUsageDto(int SeatCount, int WorkspaceCount, int ConnectorCount, long AiTokensUsedThisMonth);
+public record OrganizationBillingDto(
+    string Plan, string SubscriptionStatus, DateTime? TrialEndsAt, int? TrialDaysRemaining,
+    PlanLimitsDto Limits, BillingUsageDto Usage, bool StripeConfigured, string? StripeCustomerId);
+public record CreateCheckoutSessionRequest(string Plan, string BillingInterval, string SuccessUrl, string CancelUrl);
+public record CheckoutSessionDto(string SessionId, string Url, bool IsMock);
 public record DatabaseScanDto(Guid Id, string DatabaseName, string Status, DateTime? CompletedAt);

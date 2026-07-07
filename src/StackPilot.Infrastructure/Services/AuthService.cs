@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Tokens;
+using StackPilot.Application.Billing;
 using StackPilot.Application.Common;
 using StackPilot.Application.DTOs;
 using StackPilot.Application.Interfaces;
@@ -252,6 +253,9 @@ public class OrganizationService : IOrganizationService
         {
             Name = request.Name,
             Slug = request.Slug.ToLowerInvariant(),
+            Plan = OrganizationPlan.Trial,
+            SubscriptionStatus = SubscriptionStatus.Trialing,
+            TrialEndsAt = DateTime.UtcNow.AddDays(PlanCatalog.TrialDays),
             SettingsJson = JsonSerializer.Serialize(new { featureFlags = OrganizationFeatureFlags.Default })
         };
         _db.Organizations.Add(org);

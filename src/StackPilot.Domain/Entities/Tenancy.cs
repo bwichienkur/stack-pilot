@@ -8,6 +8,11 @@ public class Organization : BaseEntity
     public string Name { get; set; } = string.Empty;
     public string Slug { get; set; } = string.Empty;
     public OrganizationPlan Plan { get; set; } = OrganizationPlan.Trial;
+    public SubscriptionStatus SubscriptionStatus { get; set; } = SubscriptionStatus.Trialing;
+    public DateTime? TrialEndsAt { get; set; }
+    public string? StripeCustomerId { get; set; }
+    public string? StripeSubscriptionId { get; set; }
+    public string? BillingEmail { get; set; }
     public bool IsActive { get; set; } = true;
     public string? SettingsJson { get; set; }
 

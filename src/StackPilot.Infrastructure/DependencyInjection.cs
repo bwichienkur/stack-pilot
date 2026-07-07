@@ -65,6 +65,7 @@ public static class DependencyInjection
         services.AddScoped<IRagIndexService, RagIndexService>();
         services.AddScoped<IPermissionValidator, PermissionValidator>();
         services.AddScoped<IApprovalGateService, ApprovalGateService>();
+        services.AddScoped<IBillingService, BillingService>();
         services.AddSingleton<ICredentialEncryptionService, CredentialEncryptionService>();
         services.AddSingleton<IBackgroundJobService, BackgroundJobService>();
 
