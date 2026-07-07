@@ -118,7 +118,8 @@ if (!app.Environment.IsEnvironment("Testing"))
 {
     try
     {
-        await app.Services.GetRequiredService<IBillingService>().EnsureStripeCouponsAsync();
+        using var scope = app.Services.CreateScope();
+        await scope.ServiceProvider.GetRequiredService<IBillingService>().EnsureStripeCouponsAsync();
     }
     catch (Exception ex)
     {
@@ -130,10 +131,19 @@ if (Environment.GetEnvironmentVariable("DEMO_SEED") == "true")
 
 if (!app.Environment.IsEnvironment("Testing"))
 {
-    RecurringJob.AddOrUpdate<DataRetentionJob>(
-        "data-retention-purge",
-        job => job.ExecuteAsync(CancellationToken.None),
-        Cron.Daily(3));
+    try
+    {
+        using var scope = app.Services.CreateScope();
+        var recurring = scope.ServiceProvider.GetRequiredService<IRecurringJobManager>();
+        recurring.AddOrUpdate<DataRetentionJob>(
+            "data-retention-purge",
+            job => job.ExecuteAsync(CancellationToken.None),
+            Cron.Daily(3));
+    }
+    catch (Exception ex)
+    {
+        Log.Warning(ex, "Data retention recurring job registration skipped");
+    }
 }
 
 if (app.Environment.IsDevelopment())
