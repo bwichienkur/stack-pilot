@@ -32,6 +32,9 @@ public class PostgresRlsIsolationTests
         setupTenant.DisableTenantFilter();
         await using var setup = new AppDbContext(options, setupTenant);
 
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var titleA = $"RLS-A-{suffix}";
+        var titleB = $"RLS-B-{suffix}";
         var orgA = Guid.NewGuid();
         var orgB = Guid.NewGuid();
         var wsA = Guid.NewGuid();
@@ -40,39 +43,44 @@ public class PostgresRlsIsolationTests
         var userB = Guid.NewGuid();
 
         setup.Users.AddRange(
-            new ApplicationUser { Id = userA, Email = $"user-a-{userA:N}@rls.test", PasswordHash = "x" },
-            new ApplicationUser { Id = userB, Email = $"user-b-{userB:N}@rls.test", PasswordHash = "x" });
+            new ApplicationUser { Id = userA, Email = $"user-a-{suffix}@rls.test", PasswordHash = "x" },
+            new ApplicationUser { Id = userB, Email = $"user-b-{suffix}@rls.test", PasswordHash = "x" });
         setup.Organizations.AddRange(
-            new Organization { Id = orgA, Name = "Org A", Slug = $"org-a-{orgA:N}"[..12], Plan = OrganizationPlan.Trial },
-            new Organization { Id = orgB, Name = "Org B", Slug = $"org-b-{orgB:N}"[..12], Plan = OrganizationPlan.Trial });
+            new Organization { Id = orgA, Name = "Org A", Slug = $"org-a-{suffix}", Plan = OrganizationPlan.Trial },
+            new Organization { Id = orgB, Name = "Org B", Slug = $"org-b-{suffix}", Plan = OrganizationPlan.Trial });
         setup.Workspaces.AddRange(
-            new Workspace { Id = wsA, OrganizationId = orgA, Name = "WS A", Slug = "ws-a" },
-            new Workspace { Id = wsB, OrganizationId = orgB, Name = "WS B", Slug = "ws-b" });
+            new Workspace { Id = wsA, OrganizationId = orgA, Name = "WS A", Slug = $"ws-a-{suffix}" },
+            new Workspace { Id = wsB, OrganizationId = orgB, Name = "WS B", Slug = $"ws-b-{suffix}" });
         setup.Tickets.AddRange(
-            new Ticket { OrganizationId = orgA, WorkspaceId = wsA, Title = "Ticket A", TicketType = TicketType.Bug, RequesterId = userA, Status = TicketStatus.Submitted },
-            new Ticket { OrganizationId = orgB, WorkspaceId = wsB, Title = "Ticket B", TicketType = TicketType.Bug, RequesterId = userB, Status = TicketStatus.Submitted });
+            new Ticket { OrganizationId = orgA, WorkspaceId = wsA, Title = titleA, TicketType = TicketType.Bug, RequesterId = userA, Status = TicketStatus.Submitted },
+            new Ticket { OrganizationId = orgB, WorkspaceId = wsB, Title = titleB, TicketType = TicketType.Bug, RequesterId = userB, Status = TicketStatus.Submitted });
         await setup.SaveChangesAsync();
 
-        await using var tenantA = new AppDbContext(options, CreateTenant(orgA));
-        await tenantA.Database.OpenConnectionAsync();
-        await tenantA.SetOrganizationAsync(orgA);
-        var ticketsA = await tenantA.Tickets.AsNoTracking().Select(t => t.Title).ToListAsync();
-        Assert.Contains("Ticket A", ticketsA);
-        Assert.DoesNotContain("Ticket B", ticketsA);
+        var titlesA = await QueryTicketTitlesAsync(_fixture.ConnectionString!, orgA, suffix);
+        Assert.Contains(titleA, titlesA);
+        Assert.DoesNotContain(titleB, titlesA);
 
-        await using var tenantB = new AppDbContext(options, CreateTenant(orgB));
-        await tenantB.Database.OpenConnectionAsync();
-        await tenantB.SetOrganizationAsync(orgB);
-        var ticketsB = await tenantB.Tickets.AsNoTracking().Select(t => t.Title).ToListAsync();
-        Assert.Contains("Ticket B", ticketsB);
-        Assert.DoesNotContain("Ticket A", ticketsB);
+        var titlesB = await QueryTicketTitlesAsync(_fixture.ConnectionString!, orgB, suffix);
+        Assert.Contains(titleB, titlesB);
+        Assert.DoesNotContain(titleA, titlesB);
     }
 
-    private static TenantContext CreateTenant(Guid orgId)
+    private static async Task<List<string>> QueryTicketTitlesAsync(string connectionString, Guid orgId, string suffix)
     {
-        var ctx = new TenantContext();
-        ctx.DisableTenantFilter();
-        ctx.SetOrganization(orgId);
-        return ctx;
+        await using var conn = new Npgsql.NpgsqlConnection(connectionString);
+        await conn.OpenAsync();
+        await using var setCmd = conn.CreateCommand();
+        setCmd.CommandText = "SELECT set_config('stackpilot.organization_id', @orgId, false)";
+        setCmd.Parameters.AddWithValue("orgId", orgId.ToString());
+        await setCmd.ExecuteNonQueryAsync();
+
+        await using var queryCmd = conn.CreateCommand();
+        queryCmd.CommandText = """SELECT "Title" FROM "Tickets" WHERE "Title" LIKE @pattern""";
+        queryCmd.Parameters.AddWithValue("pattern", $"RLS-%-{suffix}");
+        var titles = new List<string>();
+        await using var reader = await queryCmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+            titles.Add(reader.GetString(0));
+        return titles;
     }
 }
