@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { expectOk, loginViaApi, orgHeaders, signInViaUi } from "./helpers";
 
 const apiBase = process.env.PLAYWRIGHT_API_URL || "http://localhost:5000/api/v1";
 const demoEmail = "demo@stackpilot.dev";
@@ -9,11 +10,7 @@ test.describe("Demo workflow", () => {
   test.skip(!process.env.DEMO_SEED, "Requires DEMO_SEED=true on the API");
 
   test("login, approve, QA, UAT, and release calendar", async ({ page, request }) => {
-    await page.goto("/login");
-    await expect(page.getByLabel("Email")).toBeVisible({ timeout: 15000 });
-    await page.getByLabel("Email").fill(demoEmail);
-    await page.getByLabel("Password").fill(demoPassword);
-    await page.getByRole("button", { name: /sign in/i }).click();
+    await signInViaUi(page, demoEmail, demoPassword);
 
     await expect(page).toHaveURL("/", { timeout: 15000 });
     await expect(page.getByText("Workspace Dashboard")).toBeVisible();
@@ -23,31 +20,26 @@ test.describe("Demo workflow", () => {
     await page.getByRole("button", { name: /approve/i }).first().click();
     await expect(page.getByText(/ticket approved/i)).toBeVisible({ timeout: 10000 });
 
-    const loginRes = await request.post(`${apiBase}/auth/login`, {
-      data: { email: demoEmail, password: demoPassword },
-    });
-    const loginBody = await loginRes.json();
-    const token = loginBody.data.accessToken as string;
+    const token = await loginViaApi(request, demoEmail, demoPassword);
 
     const orgsRes = await request.get(`${apiBase}/organizations`, {
       headers: { Authorization: `Bearer ${token}` },
     });
+    await expectOk(orgsRes, "List organizations API");
     const orgsBody = await orgsRes.json();
     const orgId = orgsBody.data[0].id as string;
 
     const wsRes = await request.get(`${apiBase}/organizations/${orgId}/workspaces`, {
-      headers: { Authorization: `Bearer ${token}`, "X-Organization-Id": orgId },
+      headers: orgHeaders(token, orgId),
     });
+    await expectOk(wsRes, "List workspaces API");
     const wsBody = await wsRes.json();
     const workspaceId = wsBody.data[0].id as string;
 
     const ticketsRes = await request.get(`${apiBase}/workspaces/${workspaceId}/tickets`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "X-Organization-Id": orgId,
-        "X-Workspace-Id": workspaceId,
-      },
+      headers: orgHeaders(token, orgId, workspaceId),
     });
+    await expectOk(ticketsRes, "List tickets API");
     const ticketsBody = await ticketsRes.json();
     const tickets = ticketsBody.data.items as { id: string; title: string }[];
     const demoTicket = tickets.find((t) => t.title.includes("two-factor authentication"));
@@ -57,14 +49,10 @@ test.describe("Demo workflow", () => {
     const patchStatuses = ["ImplementationInProgress", "BuildRunning", "DeployedToTest"] as const;
     for (const status of patchStatuses) {
       const patchRes = await request.patch(`${apiBase}/tickets/${ticketId}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "X-Organization-Id": orgId,
-          "X-Workspace-Id": workspaceId,
-        },
+        headers: orgHeaders(token, orgId, workspaceId),
         data: { status },
       });
-      expect(patchRes.ok()).toBeTruthy();
+      await expectOk(patchRes, `Patch ticket status ${status}`);
     }
 
     await page.getByRole("link", { name: "QA Queue" }).click();
