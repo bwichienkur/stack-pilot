@@ -1,1 +1,1 @@
-
+# keep frontend/public in Docker build context (required for staging frontend image)
