@@ -34,7 +34,6 @@ public class StackPilotWebApplicationFactory : WebApplicationFactory<Program>
             services.AddScoped<ITenantContext>(sp =>
             {
                 var ctx = new TenantContext();
-                ctx.DisableTenantFilter();
                 return ctx;
             });
 
@@ -235,6 +234,76 @@ public class AuthIntegrationTests : IClassFixture<StackPilotWebApplicationFactor
 
         var reqResponse = await _client.PostAsync($"/api/v1/tickets/{ticketId}/generate-requirements", null);
         Assert.Equal(HttpStatusCode.OK, reqResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task Ai_GenerateRequirements_CrossTenant_TicketId_IsForbidden()
+    {
+        // User A creates a ticket in Org A
+        var userAEmail = $"usera_{Guid.NewGuid():N}@stackpilot.test";
+        var (authA, orgAId) = await RegisterAndCreateOrg(userAEmail);
+
+        _client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", authA);
+        _client.DefaultRequestHeaders.Remove("X-Organization-Id");
+        _client.DefaultRequestHeaders.Add("X-Organization-Id", orgAId.ToString());
+
+        var wsResponseA = await _client.GetAsync($"/api/v1/organizations/{orgAId}/workspaces");
+        var wsBodyA = await wsResponseA.Content.ReadFromJsonAsync<ApiResponse<List<WorkspaceDto>>>();
+        var workspaceIdA = wsBodyA!.Data![0].Id;
+        _client.DefaultRequestHeaders.Remove("X-Workspace-Id");
+        _client.DefaultRequestHeaders.Add("X-Workspace-Id", workspaceIdA.ToString());
+
+        var ticketResponse = await _client.PostAsJsonAsync($"/api/v1/workspaces/{workspaceIdA}/tickets", new
+        {
+            title = "Cross-tenant isolation test",
+            description = "Ensure AI requirements generation cannot be performed across organizations by reusing ticket IDs",
+            ticketType = "Enhancement",
+            priority = "Medium",
+            businessJustification = "Tenant isolation regression test"
+        });
+        Assert.Equal(HttpStatusCode.OK, ticketResponse.StatusCode);
+
+        var ticketBody = await ticketResponse.Content.ReadFromJsonAsync<ApiResponse<TicketDto>>();
+        var ticketId = ticketBody!.Data!.Id;
+
+        // Create Org B and invite user A into it
+        var userBEmail = $"userb_{Guid.NewGuid():N}@stackpilot.test";
+        var (authB, orgBId) = await RegisterAndCreateOrg(userBEmail);
+
+        _client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", authB);
+        _client.DefaultRequestHeaders.Remove("X-Organization-Id");
+        _client.DefaultRequestHeaders.Add("X-Organization-Id", orgBId.ToString());
+        _client.DefaultRequestHeaders.Remove("X-Workspace-Id");
+
+        var inviteResponse = await _client.PostAsJsonAsync($"/api/v1/organizations/{orgBId}/invites", new
+        {
+            email = userAEmail,
+            roleName = "Developer"
+        });
+        Assert.Equal(HttpStatusCode.OK, inviteResponse.StatusCode);
+
+        var inviteBody = await inviteResponse.Content.ReadFromJsonAsync<ApiResponse<OrganizationInviteCreatedDto>>();
+        Assert.NotNull(inviteBody?.Data?.Token);
+
+        // Accept the invite as user A (invite acceptance is bootstrap path, org header not required)
+        _client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", authA);
+        _client.DefaultRequestHeaders.Remove("X-Organization-Id");
+        _client.DefaultRequestHeaders.Remove("X-Workspace-Id");
+
+        var acceptResponse = await _client.PostAsJsonAsync("/api/v1/organizations/invites/accept", new
+        {
+            token = inviteBody!.Data!.Token
+        });
+        Assert.Equal(HttpStatusCode.OK, acceptResponse.StatusCode);
+
+        // Now attempt AI requirements generation using a ticketId from Org A while operating under Org B context.
+        _client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", authA);
+        _client.DefaultRequestHeaders.Remove("X-Organization-Id");
+        _client.DefaultRequestHeaders.Add("X-Organization-Id", orgBId.ToString());
+        _client.DefaultRequestHeaders.Remove("X-Workspace-Id");
+
+        var reqResponse = await _client.PostAsync($"/api/v1/tickets/{ticketId}/generate-requirements", null);
+        Assert.NotEqual(HttpStatusCode.OK, reqResponse.StatusCode);
     }
 
     [Fact]

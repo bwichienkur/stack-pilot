@@ -94,42 +94,72 @@ public class AiService : IAiService
 
         await _governance.RecordActionAsync("generate_requirements", ticket.Title, result.Content, result.Model, result.TokensUsed, true, ct);
 
+        JsonElement parsed;
         try
         {
-            var parsed = JsonSerializer.Deserialize<JsonElement>(result.Content);
-            var requirements = new AiRequirementsResult(
-                parsed.GetProperty("businessSummary").GetString() ?? "",
-                parsed.GetProperty("functionalRequirements").GetString() ?? "",
-                parsed.GetProperty("nonFunctionalRequirements").GetString() ?? "",
-                parsed.GetProperty("acceptanceCriteria").GetString() ?? "",
-                parsed.TryGetProperty("riskScore", out var rs) ? rs.GetDecimal() : 5m,
-                parsed.TryGetProperty("confidenceScore", out var cs) ? cs.GetDecimal() : 0.7m,
-                citations);
-
-            ticket.AiRequirementsJson = result.Content;
-            ticket.RiskScore = requirements.RiskScore;
-            ticket.ConfidenceScore = requirements.ConfidenceScore;
-            ticket.Status = TicketStatus.AwaitingApproval;
-            await _db.SaveChangesAsync(ct);
-
-            return requirements;
+            parsed = JsonSerializer.Deserialize<JsonElement>(result.Content);
         }
         catch
         {
-            var fallback = new AiRequirementsResult(
-                $"Business need: {ticket.Title}",
-                ticket.Description ?? "To be defined",
-                "Standard non-functional requirements apply",
-                "- Feature works as described\n- No regression in existing functionality",
-                5m, 0.6m, citations);
-
-            ticket.AiRequirementsJson = JsonSerializer.Serialize(fallback);
-            ticket.Status = TicketStatus.AwaitingApproval;
-            ticket.RiskScore = 5m;
-            ticket.ConfidenceScore = 0.6m;
-            await _db.SaveChangesAsync(ct);
-            return fallback;
+            throw new InvalidOperationException("AI requirements output was not valid JSON");
         }
+
+        if (parsed.ValueKind != JsonValueKind.Object)
+            throw new InvalidOperationException("AI requirements output must be a JSON object");
+
+        string GetRequiredString(string name)
+        {
+            if (!parsed.TryGetProperty(name, out var el) || el.ValueKind != JsonValueKind.String)
+                throw new InvalidOperationException($"AI requirements output missing required string field: {name}");
+
+            var value = el.GetString();
+            if (string.IsNullOrWhiteSpace(value))
+                throw new InvalidOperationException($"AI requirements output has empty field: {name}");
+
+            return value;
+        }
+
+        decimal GetRequiredDecimal(string name)
+        {
+            if (!parsed.TryGetProperty(name, out var el) || el.ValueKind != JsonValueKind.Number)
+                throw new InvalidOperationException($"AI requirements output missing required numeric field: {name}");
+            return el.GetDecimal();
+        }
+
+        // If the model provides citations, validate that they refer to retrieved nodes.
+        var retrievedNodeIds = new HashSet<Guid>(ragResults.Where(r => r.GraphNodeId.HasValue).Select(r => r.GraphNodeId!.Value));
+        if (parsed.TryGetProperty("citations", out var citationsEl) && citationsEl.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var c in citationsEl.EnumerateArray())
+            {
+                if (!c.TryGetProperty("nodeId", out var nodeIdEl))
+                    continue;
+
+                if (nodeIdEl.ValueKind == JsonValueKind.String && Guid.TryParse(nodeIdEl.GetString(), out var nodeIdFromModel))
+                {
+                    // Only fail when a non-null nodeId is provided but wasn't retrieved.
+                    if (retrievedNodeIds.Count > 0 && !retrievedNodeIds.Contains(nodeIdFromModel))
+                        throw new InvalidOperationException("AI requirements output contains citations for nodes not present in retrieved context");
+                }
+            }
+        }
+
+        var requirements = new AiRequirementsResult(
+            GetRequiredString("businessSummary"),
+            GetRequiredString("functionalRequirements"),
+            GetRequiredString("nonFunctionalRequirements"),
+            GetRequiredString("acceptanceCriteria"),
+            GetRequiredDecimal("riskScore"),
+            GetRequiredDecimal("confidenceScore"),
+            citations);
+
+        ticket.AiRequirementsJson = result.Content;
+        ticket.RiskScore = requirements.RiskScore;
+        ticket.ConfidenceScore = requirements.ConfidenceScore;
+        ticket.Status = TicketStatus.AwaitingApproval;
+        await _db.SaveChangesAsync(ct);
+
+        return requirements;
     }
 
     public async Task<string> GenerateImplementationPlanAsync(Guid ticketId, CancellationToken ct = default)
