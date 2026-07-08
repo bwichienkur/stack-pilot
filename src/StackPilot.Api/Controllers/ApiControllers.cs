@@ -110,6 +110,15 @@ public class OrganizationsController : ControllerBase
             ApiResponse<OrganizationCreatedDto>.Ok(new OrganizationCreatedDto(org, session.AccessToken)));
     }
 
+    [HttpGet("{id:guid}/invitable-roles")]
+    [RequirePermission(Permissions.UsersManage)]
+    public async Task<ActionResult<ApiResponse<List<RoleDto>>>> InvitableRoles(Guid id, CancellationToken ct) =>
+        Ok(ApiResponse<List<RoleDto>>.Ok(await _orgs.GetInvitableRolesAsync(ct)));
+
+    [HttpPost("invites/accept")]
+    public async Task<ActionResult<ApiResponse<OrganizationDto>>> AcceptInvite([FromBody] AcceptInviteRequest request, CancellationToken ct) =>
+        Ok(ApiResponse<OrganizationDto>.Ok(await _orgs.AcceptInviteAsync(request, UserId, ct)));
+
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<ApiResponse<OrganizationDto>>> Get(Guid id, CancellationToken ct)
     {
@@ -144,11 +153,6 @@ public class OrganizationsController : ControllerBase
     public async Task<ActionResult<ApiResponse<List<OrganizationMemberDto>>>> Members(Guid id, CancellationToken ct) =>
         Ok(ApiResponse<List<OrganizationMemberDto>>.Ok(await _orgs.GetMembersAsync(id, ct)));
 
-    [HttpGet("roles")]
-    [RequirePermission(Permissions.UsersManage)]
-    public async Task<ActionResult<ApiResponse<List<RoleDto>>>> InvitableRoles(CancellationToken ct) =>
-        Ok(ApiResponse<List<RoleDto>>.Ok(await _orgs.GetInvitableRolesAsync(ct)));
-
     [HttpPost("{id:guid}/invites")]
     [RequirePermission(Permissions.UsersManage)]
     public async Task<ActionResult<ApiResponse<OrganizationInviteCreatedDto>>> CreateInvite(Guid id, [FromBody] CreateInviteRequest request, CancellationToken ct) =>
@@ -166,10 +170,6 @@ public class OrganizationsController : ControllerBase
         await _orgs.RevokeInviteAsync(id, inviteId, ct);
         return NoContent();
     }
-
-    [HttpPost("invites/accept")]
-    public async Task<ActionResult<ApiResponse<OrganizationDto>>> AcceptInvite([FromBody] AcceptInviteRequest request, CancellationToken ct) =>
-        Ok(ApiResponse<OrganizationDto>.Ok(await _orgs.AcceptInviteAsync(request, UserId, ct)));
 
     [HttpPost("{id:guid}/export")]
     [RequirePermission(Permissions.OrgManage)]

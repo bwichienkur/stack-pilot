@@ -123,7 +123,7 @@ export default function SettingsPage() {
         api<OrganizationInvite[]>(`/organizations/${orgId}/invites`, {}, token, orgId).catch(() => []),
         api<OutboundWebhook[]>(`/organizations/${orgId}/webhooks`, {}, token, orgId).catch(() => []),
         api<SamlConfig>(`/organizations/${orgId}/saml`, {}, token, orgId).catch(() => ({ enabled: false })),
-        api<InvitableRole[]>(`/organizations/roles`, {}, token, orgId).catch(() => []),
+        api<InvitableRole[]>(`/organizations/${orgId}/invitable-roles`, {}, token, orgId).catch(() => []),
       ]);
       setSettings(s);
       setBilling(b);
