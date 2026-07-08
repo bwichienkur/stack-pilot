@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { buildUniqueEmail, createOrganization, expectOk, orgHeaders, registerViaApi, registerViaUi } from "./helpers";
 
 const apiBase = process.env.PLAYWRIGHT_API_URL || "http://localhost:5000/api/v1";
 
@@ -6,41 +7,36 @@ test.describe("Invite accept flow", () => {
   test.describe.configure({ retries: 0 });
 
   test("create invite, register invitee, accept via UI", async ({ page, request }) => {
-    const inviterEmail = `inviter_${Date.now()}@stackpilot.test`;
-    const inviteeEmail = `invitee_${Date.now()}@stackpilot.test`;
+    const inviterEmail = buildUniqueEmail("inviter");
+    const inviteeEmail = buildUniqueEmail("invitee");
     const password = "TestPassword123!";
 
-    const registerRes = await request.post(`${apiBase}/auth/register`, {
-      data: { email: inviterEmail, password, firstName: "Inviter", lastName: "User" },
+    const inviter = await registerViaApi(request, {
+      email: inviterEmail,
+      password,
+      firstName: "Inviter",
+      lastName: "User",
     });
-    expect(registerRes.ok()).toBeTruthy();
-    const registerBody = await registerRes.json();
-    const token = registerBody.data.accessToken as string;
 
-    const orgRes = await request.post(`${apiBase}/organizations`, {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { name: "Invite Org", slug: `inv-${Date.now()}` },
+    const { orgId, orgToken } = await createOrganization(request, inviter.token, {
+      name: "Invite Org",
+      slug: `inv-${Date.now()}`,
     });
-    expect(orgRes.ok()).toBeTruthy();
-    const orgBody = await orgRes.json();
-    const orgId = orgBody.data.organization.id as string;
-    const orgToken = orgBody.data.accessToken as string;
 
     const inviteRes = await request.post(`${apiBase}/organizations/${orgId}/invites`, {
-      headers: { Authorization: `Bearer ${orgToken}`, "X-Organization-Id": orgId },
+      headers: orgHeaders(orgToken, orgId),
       data: { email: inviteeEmail, roleName: "Developer" },
     });
-    expect(inviteRes.ok()).toBeTruthy();
+    await expectOk(inviteRes, "Create invite API");
     const inviteBody = await inviteRes.json();
     const inviteUrl = inviteBody.data.inviteUrl as string;
 
-    await page.goto("/login");
-    await page.getByRole("button", { name: /need an account/i }).click();
-    await page.getByLabel("First Name").fill("Invited");
-    await page.getByLabel("Last Name").fill("User");
-    await page.getByLabel("Email").fill(inviteeEmail);
-    await page.getByLabel("Password").fill(password);
-    await page.getByRole("button", { name: /create account/i }).click();
+    await registerViaUi(page, {
+      firstName: "Invited",
+      lastName: "User",
+      email: inviteeEmail,
+      password,
+    });
     await expect(page.getByText("Step 1 of 4: Organization")).toBeVisible({ timeout: 15000 });
 
     const invitePath = new URL(inviteUrl).pathname + new URL(inviteUrl).search;
