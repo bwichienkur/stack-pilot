@@ -12,26 +12,24 @@ test.describe("Invite accept flow", () => {
       data: { email: inviterEmail, password, firstName: "Inviter", lastName: "User" },
     });
     const loginRes = await request.post(`${apiBase}/auth/login`, { data: { email: inviterEmail, password } });
-    const token = (await loginRes.json()).data.accessToken as string;
+    expect(loginRes.ok()).toBeTruthy();
+    const loginBody = await loginRes.json();
+    const token = loginBody.data.accessToken as string;
 
     const orgRes = await request.post(`${apiBase}/organizations`, {
       headers: { Authorization: `Bearer ${token}` },
       data: { name: "Invite Org", slug: `inv-${Date.now()}` },
     });
+    expect(orgRes.ok()).toBeTruthy();
     const orgBody = await orgRes.json();
     const orgId = orgBody.data.organization.id as string;
     const orgToken = orgBody.data.accessToken as string;
 
-    const rolesRes = await request.get(`${apiBase}/organizations/roles`, {
-      headers: { Authorization: `Bearer ${orgToken}`, "X-Organization-Id": orgId },
-    });
-    const rolesBody = await rolesRes.json();
-    const developerRole = rolesBody.data.find((r: { name: string }) => r.name === "Developer");
-
     const inviteRes = await request.post(`${apiBase}/organizations/${orgId}/invites`, {
       headers: { Authorization: `Bearer ${orgToken}`, "X-Organization-Id": orgId },
-      data: { email: inviteeEmail, roleId: developerRole.id },
+      data: { email: inviteeEmail, roleName: "Developer" },
     });
+    expect(inviteRes.ok()).toBeTruthy();
     const inviteBody = await inviteRes.json();
     const inviteUrl = inviteBody.data.inviteUrl as string;
 
@@ -42,9 +40,10 @@ test.describe("Invite accept flow", () => {
     await page.getByLabel("Email").fill(inviteeEmail);
     await page.getByLabel("Password").fill(password);
     await page.getByRole("button", { name: /create account/i }).click();
-    await expect(page).toHaveURL("/", { timeout: 15000 });
+    await expect(page).toHaveURL("/onboarding", { timeout: 15000 });
 
-    await page.goto(inviteUrl.replace("http://localhost:3000", ""));
+    const invitePath = new URL(inviteUrl).pathname + new URL(inviteUrl).search;
+    await page.goto(invitePath);
     await page.getByRole("button", { name: /accept invitation/i }).click();
     await expect(page).toHaveURL("/", { timeout: 15000 });
   });

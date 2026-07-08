@@ -16,8 +16,7 @@ test.describe("Golden path", () => {
     await page.getByLabel("Password").fill(password);
     await page.getByRole("button", { name: /create account/i }).click();
 
-    await expect(page).toHaveURL("/", { timeout: 15000 });
-    await expect(page.getByText("Workspace Dashboard")).toBeVisible();
+    await expect(page).toHaveURL("/onboarding", { timeout: 15000 });
   });
 
   test("full workflow: org, ticket, requirements, approval queue", async ({ page, request }) => {

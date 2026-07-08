@@ -43,9 +43,8 @@ test.describe("Demo workflow", () => {
       },
     });
     const ticketsBody = await ticketsRes.json();
-    const demoTicket = ticketsBody.data.find((t: { title: string }) =>
-      t.title.includes("two-factor authentication")
-    );
+    const tickets = ticketsBody.data.items as { id: string; title: string }[];
+    const demoTicket = tickets.find((t) => t.title.includes("two-factor authentication"));
     expect(demoTicket).toBeTruthy();
     const ticketId = demoTicket.id as string;
 
@@ -55,15 +54,18 @@ test.describe("Demo workflow", () => {
     await page.getByRole("button", { name: /approve/i }).first().click();
     await expect(page.getByText(/ticket approved/i)).toBeVisible({ timeout: 10000 });
 
-    const patchRes = await request.patch(`${apiBase}/tickets/${ticketId}`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "X-Organization-Id": orgId,
-        "X-Workspace-Id": workspaceId,
-      },
-      data: { status: "DeployedToTest" },
-    });
-    expect(patchRes.ok()).toBeTruthy();
+    const patchStatuses = ["ImplementationInProgress", "BuildRunning", "DeployedToTest"] as const;
+    for (const status of patchStatuses) {
+      const patchRes = await request.patch(`${apiBase}/tickets/${ticketId}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "X-Organization-Id": orgId,
+          "X-Workspace-Id": workspaceId,
+        },
+        data: { status },
+      });
+      expect(patchRes.ok()).toBeTruthy();
+    }
 
     await page.goto("/qa");
     await expect(page.getByText("QA Queue")).toBeVisible({ timeout: 10000 });
