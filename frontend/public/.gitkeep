@@ -1,1 +1,2 @@
 # keep frontend/public in Docker build context (required for staging frontend image)
+# (touched to retrigger Deploy Staging workflow)
