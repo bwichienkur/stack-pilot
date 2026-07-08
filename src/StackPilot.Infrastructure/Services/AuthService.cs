@@ -521,9 +521,12 @@ public class OrganizationService : IOrganizationService
             saml.Enabled,
             saml.EntityId ?? $"stackpilot-{org.Slug}",
             saml.IdpMetadataUrl,
+            saml.IdpSsoUrl,
             MaskCertificate(saml.IdpCertificate),
             $"{apiBase}/api/v1/auth/saml/signin?orgSlug={org.Slug}",
-            $"{apiBase}/api/v1/auth/saml/metadata?orgSlug={org.Slug}");
+            $"{apiBase}/api/v1/auth/saml/metadata?orgSlug={org.Slug}",
+            saml.Enabled && !string.IsNullOrWhiteSpace(saml.IdpCertificate) &&
+                (!string.IsNullOrWhiteSpace(saml.IdpSsoUrl) || !string.IsNullOrWhiteSpace(saml.IdpMetadataUrl)));
     }
 
     public async Task<OrganizationSamlConfigDto> UpdateSamlConfigAsync(
@@ -541,6 +544,7 @@ public class OrganizationService : IOrganizationService
             Enabled = request.Enabled,
             EntityId = request.EntityId?.Trim(),
             IdpMetadataUrl = request.IdpMetadataUrl?.Trim(),
+            IdpSsoUrl = request.IdpSsoUrl?.Trim(),
             IdpCertificate = string.IsNullOrWhiteSpace(request.IdpCertificate)
                 ? saml.IdpCertificate
                 : request.IdpCertificate.Trim()
@@ -557,7 +561,7 @@ public class OrganizationService : IOrganizationService
         return pem.Length <= 40 ? "***" : $"{pem[..20]}...{pem[^20..]}";
     }
 
-    private sealed record SamlSettings(bool Enabled, string? EntityId, string? IdpMetadataUrl, string? IdpCertificate);
+    private sealed record SamlSettings(bool Enabled, string? EntityId, string? IdpMetadataUrl, string? IdpSsoUrl, string? IdpCertificate);
 
     private static SamlSettings ReadSamlSettings(string? settingsJson)
     {
@@ -569,7 +573,7 @@ public class OrganizationService : IOrganizationService
     {
         var flags = OrganizationFeatureFlags.Default;
         string? slack = null;
-        var saml = new SamlSettings(false, null, null, null);
+        var saml = new SamlSettings(false, null, null, null, null);
         if (string.IsNullOrEmpty(settingsJson)) return (flags, slack, saml);
 
         try
@@ -588,6 +592,7 @@ public class OrganizationService : IOrganizationService
                     samlProp.TryGetProperty("enabled", out var en) && en.GetBoolean(),
                     samlProp.TryGetProperty("entityId", out var eid) ? eid.GetString() : null,
                     samlProp.TryGetProperty("idpMetadataUrl", out var meta) ? meta.GetString() : null,
+                    samlProp.TryGetProperty("idpSsoUrl", out var sso) ? sso.GetString() : null,
                     samlProp.TryGetProperty("idpCertificate", out var cert) ? cert.GetString() : null);
             }
         }
@@ -606,6 +611,7 @@ public class OrganizationService : IOrganizationService
                 enabled = saml.Enabled,
                 entityId = saml.EntityId,
                 idpMetadataUrl = saml.IdpMetadataUrl,
+                idpSsoUrl = saml.IdpSsoUrl,
                 idpCertificate = saml.IdpCertificate
             }
         });

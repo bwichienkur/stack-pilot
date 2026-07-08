@@ -126,6 +126,12 @@ public interface IAiService
     Task<AiCodeSuggestionDto> GenerateCodeAsync(Guid ticketId, CancellationToken ct = default);
 }
 
+public interface IAiWorkflowService
+{
+    Task<AiWorkflowActionResultDto> ExecuteAsync(Guid ticketId, string actionType, ExecuteAiWorkflowActionRequest request, CancellationToken ct = default);
+    Task<AiActionReversalResultDto> ReverseActionAsync(Guid actionId, CancellationToken ct = default);
+}
+
 public interface ICredentialEncryptionService
 {
     byte[] Encrypt(string plaintext, Guid organizationId);

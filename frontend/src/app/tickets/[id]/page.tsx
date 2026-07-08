@@ -77,6 +77,9 @@ export default function TicketDetailPage() {
   const [scheduleDate, setScheduleDate] = useState("");
   const [releaseWindow, setReleaseWindow] = useState("Maintenance");
   const [scheduling, setScheduling] = useState(false);
+  const [codegenLoading, setCodegenLoading] = useState(false);
+  const [workflowLoading, setWorkflowLoading] = useState<string | null>(null);
+  const [codeSuggestion, setCodeSuggestion] = useState<{ summary: string; suggestedCode: string; files?: { path: string; content: string }[] } | null>(null);
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const [sortByRisk, setSortByRisk] = useState(true);
 
@@ -133,6 +136,37 @@ export default function TicketDetailPage() {
       loadTicket();
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Failed to generate plan", "error");
+    }
+  };
+
+  const generateCode = async () => {
+    setCodegenLoading(true);
+    try {
+      const result = await api<{ suggestedCode: string; summary: string; files?: { path: string; content: string }[] }>(
+        `/tickets/${id}/generate-code`, { method: "POST" }, token, orgId, workspaceId);
+      setCodeSuggestion(result);
+      showToast("Code generated", "success");
+      loadTicket();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to generate code", "error");
+    } finally {
+      setCodegenLoading(false);
+    }
+  };
+
+  const runWorkflowAction = async (actionType: string) => {
+    setWorkflowLoading(actionType);
+    try {
+      const result = await api<{ message: string }>(`/tickets/${id}/ai-workflow/${actionType}`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      }, token, orgId, workspaceId);
+      showToast(result.message, "success");
+      loadTicket();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : `Failed to run ${actionType}`, "error");
+    } finally {
+      setWorkflowLoading(null);
     }
   };
 
@@ -194,6 +228,7 @@ export default function TicketDetailPage() {
   const tabs = ["details", "requirements", "plan", "impact", "builds", "approvals", "activity"];
   const canApprove = ticket.status === "AwaitingApproval" || ticket.status === "RequirementsDrafted";
   const canScheduleRelease = ticket.status === "UatAccepted";
+  const canRunAiWorkflow = ["Approved", "ImplementationInProgress", "PullRequestCreated"].includes(ticket.status);
   const workflow = workflowData ?? getFallbackWorkflowStates(ticket.status);
 
   const sortedImpactNodes = impact?.impactedNodes
@@ -234,6 +269,21 @@ export default function TicketDetailPage() {
             )}
             {ticket.aiRequirementsJson && !ticket.implementationPlanJson && ticket.status === "Approved" && (
               <Button onClick={generatePlan}><Bot className="h-4 w-4" /> Generate Plan</Button>
+            )}
+            {ticket.implementationPlanJson && canRunAiWorkflow && (
+              <Button onClick={generateCode} disabled={codegenLoading}>
+                <Bot className="h-4 w-4" /> {codegenLoading ? "Generating..." : "Generate Code"}
+              </Button>
+            )}
+            {canRunAiWorkflow && (
+              <>
+                <Button variant="secondary" disabled={!!workflowLoading} onClick={() => runWorkflowAction("create_branch")}>
+                  <GitBranch className="h-4 w-4" /> {workflowLoading === "create_branch" ? "..." : "Create Branch"}
+                </Button>
+                <Button variant="secondary" disabled={!!workflowLoading} onClick={() => runWorkflowAction("create_pr")}>
+                  Open PR
+                </Button>
+              </>
             )}
             {canApprove && (
               <>
@@ -309,6 +359,17 @@ export default function TicketDetailPage() {
               {planSections.map((section, i) => (
                 <pre key={i} className="text-sm text-zinc-300 whitespace-pre-wrap">{section}</pre>
               ))}
+              {codeSuggestion && (
+                <div className="border-t border-zinc-800 pt-4 space-y-3">
+                  <h4 className="text-sm font-medium text-indigo-300">Generated code — {codeSuggestion.summary}</h4>
+                  {(codeSuggestion.files ?? [{ path: "primary", content: codeSuggestion.suggestedCode }]).map((file) => (
+                    <div key={file.path}>
+                      <p className="text-xs text-zinc-500 mb-1">{file.path}</p>
+                      <pre className="text-xs text-zinc-300 whitespace-pre-wrap bg-zinc-900/50 p-3 rounded-lg">{file.content}</pre>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         )}

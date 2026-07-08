@@ -407,6 +407,20 @@ public class TicketsController : ControllerBase
     [EnableRateLimiting("ai")]
     public async Task<ActionResult<ApiResponse<AiCodeSuggestionDto>>> GenerateCode(Guid id, CancellationToken ct) =>
         Ok(ApiResponse<AiCodeSuggestionDto>.Ok(await _ai.GenerateCodeAsync(id, ct)));
+
+    [HttpPost("tickets/{id:guid}/ai-workflow/{actionType}")]
+    [RequirePermission(Permissions.AiUse)]
+    [EnableRateLimiting("ai")]
+    public async Task<ActionResult<ApiResponse<AiWorkflowActionResultDto>>> ExecuteAiWorkflow(
+        Guid id, string actionType, [FromBody] ExecuteAiWorkflowActionRequest request,
+        [FromServices] IAiWorkflowService workflow, CancellationToken ct) =>
+        Ok(ApiResponse<AiWorkflowActionResultDto>.Ok(await workflow.ExecuteAsync(id, actionType, request, ct)));
+
+    [HttpPost("ai-actions/{actionId:guid}/reverse")]
+    [RequirePermission(Permissions.AiUse)]
+    public async Task<ActionResult<ApiResponse<AiActionReversalResultDto>>> ReverseAiAction(
+        Guid actionId, [FromServices] IAiWorkflowService workflow, CancellationToken ct) =>
+        Ok(ApiResponse<AiActionReversalResultDto>.Ok(await workflow.ReverseActionAsync(actionId, ct)));
 }
 
 [ApiController]

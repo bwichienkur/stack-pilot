@@ -30,24 +30,25 @@ public class SsoController : ControllerBase
         _db = db;
     }
 
-    private sealed record OrgSamlSettings(bool Enabled, string? EntityId, string? IdpMetadataUrl, string? IdpCertificate);
+    private sealed record OrgSamlSettings(bool Enabled, string? EntityId, string? IdpMetadataUrl, string? IdpSsoUrl, string? IdpCertificate);
 
     private static OrgSamlSettings ReadOrgSaml(string? settingsJson)
     {
-        if (string.IsNullOrEmpty(settingsJson)) return new OrgSamlSettings(false, null, null, null);
+        if (string.IsNullOrEmpty(settingsJson)) return new OrgSamlSettings(false, null, null, null, null);
         try
         {
             using var doc = JsonDocument.Parse(settingsJson);
-            if (!doc.RootElement.TryGetProperty("saml", out var saml)) return new OrgSamlSettings(false, null, null, null);
+            if (!doc.RootElement.TryGetProperty("saml", out var saml)) return new OrgSamlSettings(false, null, null, null, null);
             return new OrgSamlSettings(
                 saml.TryGetProperty("enabled", out var enabled) && enabled.GetBoolean(),
                 saml.TryGetProperty("entityId", out var entityId) ? entityId.GetString() : null,
                 saml.TryGetProperty("idpMetadataUrl", out var metadataUrl) ? metadataUrl.GetString() : null,
+                saml.TryGetProperty("idpSsoUrl", out var ssoUrl) ? ssoUrl.GetString() : null,
                 saml.TryGetProperty("idpCertificate", out var cert) ? cert.GetString() : null);
         }
         catch
         {
-            return new OrgSamlSettings(false, null, null, null);
+            return new OrgSamlSettings(false, null, null, null, null);
         }
     }
 
@@ -175,6 +176,7 @@ public class SsoController : ControllerBase
         string entityId = _config["Authentication:Saml:EntityId"] ?? "stackpilot";
         var acsUrl = AcsUrl(orgSlug);
         string? idpMetadataUrl = null;
+        string? idpSsoUrl = null;
         var productionReady = !string.IsNullOrWhiteSpace(_config["Authentication:Saml:IdpCertificate"]);
 
         if (!string.IsNullOrWhiteSpace(orgSlug))
@@ -200,7 +202,9 @@ public class SsoController : ControllerBase
 
             entityId = orgSaml.EntityId ?? $"stackpilot-{org.Slug}";
             idpMetadataUrl = orgSaml.IdpMetadataUrl;
-            productionReady = !string.IsNullOrWhiteSpace(orgSaml.IdpCertificate);
+            idpSsoUrl = orgSaml.IdpSsoUrl;
+            productionReady = !string.IsNullOrWhiteSpace(orgSaml.IdpCertificate) &&
+                (!string.IsNullOrWhiteSpace(orgSaml.IdpSsoUrl) || !string.IsNullOrWhiteSpace(orgSaml.IdpMetadataUrl));
         }
 
         return Ok(ApiResponse<object>.Ok(new
@@ -209,6 +213,7 @@ public class SsoController : ControllerBase
             entityId,
             acsUrl,
             idpMetadataUrl,
+            idpSsoUrl,
             returnUrl,
             orgSlug,
             productionReady,

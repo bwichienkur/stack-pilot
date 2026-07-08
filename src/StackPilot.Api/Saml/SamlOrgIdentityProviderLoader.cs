@@ -25,27 +25,29 @@ public sealed class SamlOrgIdentityProviderLoader
         if (!saml.Enabled || string.IsNullOrWhiteSpace(saml.EntityId) || string.IsNullOrWhiteSpace(saml.IdpCertificate))
             return null;
 
-        return SamlIdentityProviderFactory.Create(saml.EntityId, saml.IdpMetadataUrl, saml.IdpCertificate, spOptions);
+        return SamlIdentityProviderFactory.Create(
+            saml.EntityId, saml.IdpSsoUrl ?? saml.IdpMetadataUrl, saml.IdpCertificate, spOptions);
     }
 
-    private sealed record OrgSamlSettings(bool Enabled, string? EntityId, string? IdpMetadataUrl, string? IdpCertificate);
+    private sealed record OrgSamlSettings(bool Enabled, string? EntityId, string? IdpMetadataUrl, string? IdpSsoUrl, string? IdpCertificate);
 
     private static OrgSamlSettings ReadOrgSaml(string? settingsJson)
     {
-        if (string.IsNullOrEmpty(settingsJson)) return new OrgSamlSettings(false, null, null, null);
+        if (string.IsNullOrEmpty(settingsJson)) return new OrgSamlSettings(false, null, null, null, null);
         try
         {
             using var doc = JsonDocument.Parse(settingsJson);
-            if (!doc.RootElement.TryGetProperty("saml", out var saml)) return new OrgSamlSettings(false, null, null, null);
+            if (!doc.RootElement.TryGetProperty("saml", out var saml)) return new OrgSamlSettings(false, null, null, null, null);
             return new OrgSamlSettings(
                 saml.TryGetProperty("enabled", out var enabled) && enabled.GetBoolean(),
                 saml.TryGetProperty("entityId", out var entityId) ? entityId.GetString() : null,
                 saml.TryGetProperty("idpMetadataUrl", out var metadataUrl) ? metadataUrl.GetString() : null,
+                saml.TryGetProperty("idpSsoUrl", out var ssoUrl) ? ssoUrl.GetString() : null,
                 saml.TryGetProperty("idpCertificate", out var cert) ? cert.GetString() : null);
         }
         catch
         {
-            return new OrgSamlSettings(false, null, null, null);
+            return new OrgSamlSettings(false, null, null, null, null);
         }
     }
 }

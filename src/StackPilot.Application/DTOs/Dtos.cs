@@ -22,10 +22,10 @@ public record CreateInviteRequest(string Email, Guid? RoleId = null, string? Rol
 public record AcceptInviteRequest(string Token);
 public record RoleDto(Guid Id, string Name, string? Description);
 public record OrganizationSamlConfigDto(
-    bool Enabled, string? EntityId, string? IdpMetadataUrl, string? IdpCertificate,
-    string? LoginUrl, string? MetadataUrl);
+    bool Enabled, string? EntityId, string? IdpMetadataUrl, string? IdpSsoUrl, string? IdpCertificate,
+    string? LoginUrl, string? MetadataUrl, bool ProductionReady);
 public record UpdateOrganizationSamlConfigRequest(
-    bool Enabled, string? EntityId, string? IdpMetadataUrl, string? IdpCertificate);
+    bool Enabled, string? EntityId, string? IdpMetadataUrl, string? IdpSsoUrl, string? IdpCertificate);
 public record UpdateMemberRoleRequest(Guid UserId, Guid RoleId);
 public record WorkspaceDto(Guid Id, Guid OrganizationId, string Name, string Slug, string? Description, bool IsActive);
 public record CreateWorkspaceRequest(string Name, string Slug, string? Description);
@@ -99,7 +99,17 @@ public record ConnectorHealthSummaryDto(int Total, int Healthy, int Degraded, in
 public record OutboundWebhookSubscriptionDto(Guid Id, string Url, string[] Events, bool IsActive, DateTime CreatedAt);
 public record CreateOutboundWebhookRequest(string Url, string[] Events);
 
-public record AiCodeSuggestionDto(Guid AiActionId, string SuggestedCode, string Language, string Summary);
+public record AiCodeFileDto(string Path, string Content, string Language);
+public record AiCodeSuggestionDto(
+    Guid AiActionId, string SuggestedCode, string Language, string Summary,
+    IReadOnlyList<AiCodeFileDto>? Files = null);
+public record ExecuteAiWorkflowActionRequest(
+    Guid? ConnectorId, string? RepositoryOwner, string? RepositoryName,
+    string? BranchName, string? FilePath, string? FileContent,
+    string? PullRequestTitle, string? PullRequestBody, string? MigrationName);
+public record AiWorkflowActionResultDto(
+    Guid ActionId, string ActionType, bool Success, string Message, string? DetailsJson = null);
+public record AiActionReversalResultDto(Guid OriginalActionId, Guid ReversalActionId, string Message);
 
 public record AiUsageWithOverageDto(
     long TokensUsedThisMonth, long MonthlyBudget, long OverageTokens, bool WithinGracePeriod, bool IsOverBudget);

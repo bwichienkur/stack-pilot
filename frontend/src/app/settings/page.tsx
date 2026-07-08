@@ -601,6 +601,10 @@ export default function SettingsPage() {
                   <Input value={samlConfig.idpMetadataUrl || ""} onChange={(e) => setSamlConfig((c) => ({ ...c, idpMetadataUrl: e.target.value }))} />
                 </div>
                 <div>
+                  <label className="text-sm text-zinc-400 mb-1 block">IdP SSO URL (recommended for production)</label>
+                  <Input value={samlConfig.idpSsoUrl || ""} onChange={(e) => setSamlConfig((c) => ({ ...c, idpSsoUrl: e.target.value }))} placeholder="https://idp.example.com/saml/sso" />
+                </div>
+                <div>
                   <label className="text-sm text-zinc-400 mb-1 block">IdP Certificate (PEM)</label>
                   <textarea
                     value={samlConfig.idpCertificate || ""}
@@ -611,6 +615,9 @@ export default function SettingsPage() {
                 </div>
                 {samlConfig.metadataUrl && (
                   <p className="text-xs text-zinc-500">SP metadata: {samlConfig.metadataUrl}</p>
+                )}
+                {samlConfig.productionReady && (
+                  <p className="text-xs text-emerald-400">Production-ready: certificate and SSO URL configured</p>
                 )}
                 <Button size="sm" onClick={saveSaml} disabled={samlSaving}>
                   {samlSaving ? "Saving..." : "Save SAML config"}

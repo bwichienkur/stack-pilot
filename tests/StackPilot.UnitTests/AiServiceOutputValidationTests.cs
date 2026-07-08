@@ -200,6 +200,12 @@ public class AiServiceOutputValidationTests
             Task.FromResult(Guid.NewGuid());
 
         public Task<bool> RequiresApprovalAsync(string actionType) => Task.FromResult(false);
+
+        public Task EnsureTicketApprovalAsync(Guid ticketId, string actionType, CancellationToken ct = default) =>
+            Task.CompletedTask;
+
+        public Task<AiActionReversalResult> ReverseActionAsync(Guid actionId, CancellationToken ct = default) =>
+            Task.FromResult(new AiActionReversalResult(actionId, Guid.NewGuid(), "reversed"));
     }
 
     private class FakePlanLimitService : IPlanLimitService

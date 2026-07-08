@@ -39,9 +39,9 @@ Deep code scanning runs today for **GitHub** and **GitLab**; **Azure DevOps** an
 |------|--------|
 | SAML 2.0 SSO | Production ACS via Sustainsys.Saml2; per-org IdP config in Settings (Professional+) |
 | Desktop (Tauri) / Mobile (Expo) | Scaffolds with README |
-| AI code generation | Scaffold endpoint; provider-backed codegen planned |
-| Billing, teams UI, connector marketplace | Pricing page + Stripe Checkout; limit enforcement shipped |
-| Kanban drag-and-drop | Status columns only |
+| AI code generation | Provider-backed codegen + governed git/PR workflow actions |
+| Billing, teams UI, connector marketplace | Pricing page + Stripe Checkout; limit enforcement + marketplace search |
+| Kanban drag-and-drop | Drag tickets between workflow columns |
 
 ## Quick Start
 

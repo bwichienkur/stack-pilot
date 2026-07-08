@@ -56,6 +56,7 @@ export default function ConnectorsPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [selectedDef, setSelectedDef] = useState("");
   const [activeCategory, setActiveCategory] = useState<string>("all");
+  const [marketplaceSearch, setMarketplaceSearch] = useState("");
   const [connectorName, setConnectorName] = useState("");
   const [formValues, setFormValues] = useState({ config: {} as Record<string, string>, credentials: {} as Record<string, string> });
   const [expandedHistory, setExpandedHistory] = useState<string | null>(null);
@@ -135,7 +136,12 @@ export default function ConnectorsPage() {
   };
 
   const categories = CATEGORY_ORDER.filter((c) => definitions.some((d) => d.category === c));
-  const filteredDefinitions = activeCategory === "all" ? definitions : definitions.filter((d) => d.category === activeCategory);
+  const filteredDefinitions = (activeCategory === "all" ? definitions : definitions.filter((d) => d.category === activeCategory))
+    .filter((d) => {
+      if (!marketplaceSearch.trim()) return true;
+      const q = marketplaceSearch.toLowerCase();
+      return d.name.toLowerCase().includes(q) || (d.description?.toLowerCase().includes(q) ?? false);
+    });
   const groupedDefinitions = CATEGORY_ORDER.reduce<Record<string, ConnectorDef[]>>((acc, cat) => {
     const items = definitions.filter((d) => d.category === cat);
     if (items.length > 0) acc[cat] = items;
@@ -224,9 +230,16 @@ export default function ConnectorsPage() {
         )}
 
         <div>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-zinc-100">Available Connectors</h2>
-            <div className="flex flex-wrap gap-2">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
+            <h2 className="text-lg font-semibold text-zinc-100">Connector Marketplace</h2>
+            <Input
+              placeholder="Search connectors..."
+              value={marketplaceSearch}
+              onChange={(e) => setMarketplaceSearch(e.target.value)}
+              className="max-w-xs"
+            />
+          </div>
+          <div className="flex flex-wrap gap-2 mb-4">
               <Button variant={activeCategory === "all" ? "default" : "secondary"} size="sm" onClick={() => setActiveCategory("all")}>
                 All ({definitions.length})
               </Button>
@@ -235,10 +248,18 @@ export default function ConnectorsPage() {
                   {CATEGORY_LABELS[cat] ?? cat} ({definitions.filter((d) => d.category === cat).length})
                 </Button>
               ))}
-            </div>
           </div>
 
-          {activeCategory === "all" ? (
+          {marketplaceSearch.trim() ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {filteredDefinitions.map((d) => (
+                <Card key={d.id} className="p-4">
+                  <h3 className="font-medium text-zinc-200">{d.name}</h3>
+                  <p className="text-xs text-zinc-500 mt-1">{d.description}</p>
+                </Card>
+              ))}
+            </div>
+          ) : activeCategory === "all" ? (
             <div className="space-y-8">
               {Object.entries(groupedDefinitions).map(([cat, items]) => (
                 <div key={cat}>

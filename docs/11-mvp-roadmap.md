@@ -82,7 +82,7 @@ The 100-task independent review backlog is **complete**. Post-review completion 
 
 | Item | Status |
 |------|--------|
-| SAML full IdP integration | Dev mode + plan gating; production IdP config in Settings |
+| SAML full IdP integration | Per-org SSO URL + certificate in Settings; Sustainsys ACS |
 | Desktop app (Tauri) | Scaffold — loads web frontend |
 | Mobile app (Expo) | Approvals queue read-only view |
 | Billing | Phase 1+2 shipped (enforcement, portal, DESIGNPARTNER20) |

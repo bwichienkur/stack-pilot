@@ -13,7 +13,9 @@ StackPilot implements technical controls aligned with SOC 2 Trust Services Crite
 | Password policy | bcrypt work factor 12 |
 | Rate limiting | Auth and AI endpoints |
 | Webhook signature verification | Fail-closed GitHub + Stripe inbound webhooks; HMAC-signed outbound webhooks |
-| Change management | Ticket workflow state machine, approval gates |
+| AI action reversal | Reversible actions recorded; `POST /ai-actions/{id}/reverse` |
+| AI workflow actions | Governed create_branch, write_file, create_pr, create_migration, trigger_build, deploy |
+| Change management | Ticket workflow state machine, approval gates, kanban status transitions |
 | Data retention | `DataRetentionJob` purges audit logs per plan tier |
 | GDPR export/delete | `POST /organizations/{id}/export` and `POST /organizations/{id}/delete-data` APIs + Settings UI |
 

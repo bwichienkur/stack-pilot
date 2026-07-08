@@ -54,4 +54,8 @@ public interface IAiGovernanceService
 {
     Task<Guid> RecordActionAsync(string actionType, string? input, string? output, string model, int tokens, bool isReversible, CancellationToken ct = default);
     Task<bool> RequiresApprovalAsync(string actionType);
+    Task EnsureTicketApprovalAsync(Guid ticketId, string actionType, CancellationToken ct = default);
+    Task<AiActionReversalResult> ReverseActionAsync(Guid actionId, CancellationToken ct = default);
 }
+
+public record AiActionReversalResult(Guid OriginalActionId, Guid ReversalActionId, string Message);

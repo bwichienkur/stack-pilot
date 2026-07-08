@@ -63,9 +63,11 @@ export interface SamlConfig {
   enabled: boolean;
   entityId?: string;
   idpMetadataUrl?: string;
+  idpSsoUrl?: string;
   idpCertificate?: string;
   loginUrl?: string;
   metadataUrl?: string;
+  productionReady?: boolean;
 }
 
 export interface DocPageLatest {

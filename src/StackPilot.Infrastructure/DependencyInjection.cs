@@ -61,6 +61,7 @@ public static class DependencyInjection
         services.AddScoped<INotificationService, SlackNotificationService>();
         services.AddHttpClient();
         services.AddScoped<IAiService, AiService>();
+        services.AddScoped<IAiWorkflowService, AiWorkflowService>();
         services.AddScoped<IAiGovernanceService, AiGovernanceService>();
         services.AddScoped<IRagIndexService, RagIndexService>();
         services.AddScoped<IPermissionValidator, PermissionValidator>();

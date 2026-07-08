@@ -246,36 +246,67 @@ public class AiService : IAiService
         if (ticket.Status is not (TicketStatus.Approved or TicketStatus.ImplementationInProgress))
             throw new InvalidOperationException("Ticket must be approved before generating code");
 
-        // Fail closed: when governance requires approval for code generation, require an explicit human-approved decision.
         if (await _governance.RequiresApprovalAsync("generate_code"))
-        {
-            var hasApproval = await _db.Approvals.AnyAsync(
-                a => a.TicketId == ticketId && a.Decision == ApprovalDecision.Approved, ct);
-
-            if (!hasApproval)
-                throw new UnauthorizedAccessException("Human approval is required before AI code generation");
-        }
+            await _governance.EnsureTicketApprovalAsync(ticketId, "generate_code", ct);
 
         await _planLimits.EnsureCanUseAiAsync(ticket.OrganizationId, ct: ct);
 
-        var suggestedCode = $$"""
-            // StackPilot AI scaffold for ticket #{{ticket.TicketNumber}}: {{ticket.Title}}
-            // TODO: Replace with production implementation
+        var ragResults = await _rag.SearchAsync(
+            ticket.WorkspaceId, $"{ticket.Title} {ticket.ImplementationPlanJson}", 10, ct);
+        var contextBlock = string.Join("\n", ragResults.Select(r => r.Content));
 
-            public class Ticket{{ticket.TicketNumber}}Feature
-            {
-                public void Execute()
-                {
-                    // Implementation based on: {{ticket.Description ?? "requirements pending"}}
-                }
-            }
-            """;
+        var result = await _provider.CompleteAsync(new AiCompletionRequest
+        {
+            SystemPrompt = """You are a senior software engineer. Generate production-quality code for an approved ticket. Return JSON with keys: language (string), summary (string), files (array of {path, content, language}). Each file must have non-empty path and content.""",
+            UserPrompt = $"Ticket #{ticket.TicketNumber}: {ticket.Title}\nPlan:\n{ticket.ImplementationPlanJson}\nRequirements:\n{ticket.AiRequirementsJson}\n\nContext:\n{contextBlock}"
+        }, ct);
+
+        var parsed = ValidateAndParseCodeGeneration(result.Content);
+        var primary = parsed.Files[0];
 
         var actionId = await _governance.RecordActionAsync(
-            "generate_code", ticket.Title, suggestedCode, "scaffold", 500, true, ct);
+            "generate_code", ticket.Title, result.Content, result.Model, result.TokensUsed, true, ct);
 
-        return new AiCodeSuggestionDto(actionId, suggestedCode, "csharp", $"Scaffold for {ticket.Title}");
+        return new AiCodeSuggestionDto(actionId, primary.Content, primary.Language, parsed.Summary, parsed.Files);
     }
+
+    public static CodeGenerationResult ValidateAndParseCodeGeneration(string content)
+    {
+        JsonElement parsed;
+        try { parsed = JsonSerializer.Deserialize<JsonElement>(content); }
+        catch { throw new InvalidOperationException("AI code generation output was not valid JSON"); }
+
+        if (parsed.ValueKind != JsonValueKind.Object)
+            throw new InvalidOperationException("AI code generation output must be a JSON object");
+
+        if (!parsed.TryGetProperty("summary", out var summaryEl) || summaryEl.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(summaryEl.GetString()))
+            throw new InvalidOperationException("AI code generation output missing required field: summary");
+
+        if (!parsed.TryGetProperty("language", out var langEl) || langEl.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(langEl.GetString()))
+            throw new InvalidOperationException("AI code generation output missing required field: language");
+
+        if (!parsed.TryGetProperty("files", out var filesEl) || filesEl.ValueKind != JsonValueKind.Array || filesEl.GetArrayLength() == 0)
+            throw new InvalidOperationException("AI code generation output must include a non-empty files array");
+
+        var files = new List<AiCodeFileDto>();
+        foreach (var file in filesEl.EnumerateArray())
+        {
+            if (!file.TryGetProperty("path", out var pathEl) || pathEl.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(pathEl.GetString()))
+                throw new InvalidOperationException("AI code generation file missing path");
+            if (!file.TryGetProperty("content", out var contentEl) || contentEl.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(contentEl.GetString()))
+                throw new InvalidOperationException("AI code generation file missing content");
+
+            var language = file.TryGetProperty("language", out var fileLang) && fileLang.ValueKind == JsonValueKind.String
+                ? fileLang.GetString()!
+                : langEl.GetString()!;
+
+            files.Add(new AiCodeFileDto(pathEl.GetString()!, contentEl.GetString()!, language));
+        }
+
+        return new CodeGenerationResult(summaryEl.GetString()!, langEl.GetString()!, files);
+    }
+
+    public sealed record CodeGenerationResult(string Summary, string Language, IReadOnlyList<AiCodeFileDto> Files);
 
     private static void ValidateImplementationPlanOutput(string content)
     {
@@ -351,4 +382,49 @@ public class AiGovernanceService : IAiGovernanceService
 
     public Task<bool> RequiresApprovalAsync(string actionType) =>
         Task.FromResult(ApprovalRequired.Contains(actionType));
+
+    public async Task EnsureTicketApprovalAsync(Guid ticketId, string actionType, CancellationToken ct = default)
+    {
+        if (!await RequiresApprovalAsync(actionType)) return;
+
+        var hasApproval = await _db.Approvals.AnyAsync(
+            a => a.TicketId == ticketId && a.Decision == ApprovalDecision.Approved, ct);
+
+        if (!hasApproval)
+            throw new UnauthorizedAccessException($"Human approval is required before AI action: {actionType}");
+    }
+
+    public async Task<AiActionReversalResult> ReverseActionAsync(Guid actionId, CancellationToken ct = default)
+    {
+        var action = await _db.AiActions.FindAsync([actionId], ct)
+            ?? throw new KeyNotFoundException("AI action not found");
+
+        if (_tenant.OrganizationId.HasValue && action.OrganizationId != _tenant.OrganizationId.Value)
+            throw new UnauthorizedAccessException("Cross-tenant AI action access is not allowed");
+
+        if (!action.IsReversible)
+            throw new InvalidOperationException("This AI action is not reversible");
+
+        if (action.Status == AiActionStatus.Reversed || action.ReversalId.HasValue)
+            throw new InvalidOperationException("This AI action has already been reversed");
+
+        var reversal = new AiAction
+        {
+            OrganizationId = action.OrganizationId,
+            UserId = _tenant.UserId,
+            ActionType = $"reverse_{action.ActionType}",
+            InputJson = action.OutputJson,
+            OutputJson = $"Reversed action {action.Id}",
+            Model = "governance",
+            TokensUsed = 0,
+            Status = AiActionStatus.Completed,
+            IsReversible = false
+        };
+        _db.AiActions.Add(reversal);
+        action.Status = AiActionStatus.Reversed;
+        action.ReversalId = reversal.Id;
+        await _db.SaveChangesAsync(ct);
+
+        return new AiActionReversalResult(action.Id, reversal.Id, $"Reversed {action.ActionType} action");
+    }
 }

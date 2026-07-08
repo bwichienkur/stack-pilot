@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -14,6 +15,10 @@ public interface IGitHubApiClient
     Task<List<GitHubContent>> GetContentsAsync(string token, string owner, string repo, string path = "", CancellationToken ct = default);
     Task<string?> GetFileContentAsync(string token, string owner, string repo, string path, CancellationToken ct = default);
     Task<List<GitHubWorkflowRun>> ListWorkflowRunsAsync(string token, string owner, string repo, int perPage = 10, CancellationToken ct = default);
+    Task<string?> GetBranchShaAsync(string token, string owner, string repo, string branch, CancellationToken ct = default);
+    Task<GitHubRefResult?> CreateBranchAsync(string token, string owner, string repo, string branchName, string fromBranch, CancellationToken ct = default);
+    Task<GitHubFileCommitResult?> CreateOrUpdateFileAsync(string token, string owner, string repo, string path, string branch, string content, string commitMessage, CancellationToken ct = default);
+    Task<GitHubPullRequestResult?> CreatePullRequestAsync(string token, string owner, string repo, string title, string headBranch, string baseBranch, string? body = null, CancellationToken ct = default);
 }
 
 public class GitHubApiClient : IGitHubApiClient
@@ -95,6 +100,69 @@ public class GitHubApiClient : IGitHubApiClient
         return result?.WorkflowRuns ?? [];
     }
 
+    public async Task<string?> GetBranchShaAsync(string token, string owner, string repo, string branch, CancellationToken ct = default)
+    {
+        using var request = CreateRequest(HttpMethod.Get, $"https://api.github.com/repos/{owner}/{repo}/git/ref/heads/{Uri.EscapeDataString(branch)}", token);
+        var response = await _http.SendAsync(request, ct);
+        if (!response.IsSuccessStatusCode) return null;
+        var result = await response.Content.ReadFromJsonAsync<GitHubRefResponse>(JsonOptions, ct);
+        return result?.Object?.Sha;
+    }
+
+    public async Task<GitHubRefResult?> CreateBranchAsync(string token, string owner, string repo, string branchName, string fromBranch, CancellationToken ct = default)
+    {
+        var sha = await GetBranchShaAsync(token, owner, repo, fromBranch, ct);
+        if (sha is null) return null;
+
+        using var request = CreateRequest(HttpMethod.Post, $"https://api.github.com/repos/{owner}/{repo}/git/refs", token);
+        request.Content = new StringContent(
+            JsonSerializer.Serialize(new { @ref = $"refs/heads/{branchName}", sha }),
+            Encoding.UTF8, "application/json");
+        var response = await _http.SendAsync(request, ct);
+        if (!response.IsSuccessStatusCode) return null;
+        return await response.Content.ReadFromJsonAsync<GitHubRefResult>(JsonOptions, ct);
+    }
+
+    public async Task<GitHubFileCommitResult?> CreateOrUpdateFileAsync(
+        string token, string owner, string repo, string path, string branch, string content, string commitMessage, CancellationToken ct = default)
+    {
+        var encodedPath = string.Join("/", path.Split('/').Select(Uri.EscapeDataString));
+        var getUrl = $"https://api.github.com/repos/{owner}/{repo}/contents/{encodedPath}?ref={Uri.EscapeDataString(branch)}";
+        using var getRequest = CreateRequest(HttpMethod.Get, getUrl, token);
+        var getResponse = await _http.SendAsync(getRequest, ct);
+        string? existingSha = null;
+        if (getResponse.IsSuccessStatusCode)
+        {
+            var existing = await getResponse.Content.ReadFromJsonAsync<GitHubContentResponse>(JsonOptions, ct);
+            existingSha = existing?.Sha;
+        }
+
+        var payload = new Dictionary<string, object?>
+        {
+            ["message"] = commitMessage,
+            ["content"] = Convert.ToBase64String(Encoding.UTF8.GetBytes(content)),
+            ["branch"] = branch
+        };
+        if (existingSha is not null) payload["sha"] = existingSha;
+
+        using var putRequest = CreateRequest(HttpMethod.Put, $"https://api.github.com/repos/{owner}/{repo}/contents/{encodedPath}", token);
+        putRequest.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+        var putResponse = await _http.SendAsync(putRequest, ct);
+        if (!putResponse.IsSuccessStatusCode) return null;
+        return await putResponse.Content.ReadFromJsonAsync<GitHubFileCommitResult>(JsonOptions, ct);
+    }
+
+    public async Task<GitHubPullRequestResult?> CreatePullRequestAsync(
+        string token, string owner, string repo, string title, string headBranch, string baseBranch, string? body = null, CancellationToken ct = default)
+    {
+        var payload = new { title, head = headBranch, @base = baseBranch, body };
+        using var request = CreateRequest(HttpMethod.Post, $"https://api.github.com/repos/{owner}/{repo}/pulls", token);
+        request.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+        var response = await _http.SendAsync(request, ct);
+        if (!response.IsSuccessStatusCode) return null;
+        return await response.Content.ReadFromJsonAsync<GitHubPullRequestResult>(JsonOptions, ct);
+    }
+
     private static HttpRequestMessage CreateRequest(HttpMethod method, string url, string token)
     {
         var request = new HttpRequestMessage(method, url);
@@ -145,4 +213,49 @@ public class GitHubWorkflowRun
     public string? Conclusion { get; set; }
     public string? HtmlUrl { get; set; }
     public DateTime? CreatedAt { get; set; }
+}
+
+public class GitHubRefResponse
+{
+    public GitHubRefObject? Object { get; set; }
+}
+
+public class GitHubRefObject
+{
+    public string? Sha { get; set; }
+}
+
+public class GitHubRefResult
+{
+    public string? Ref { get; set; }
+    public GitHubRefObject? Object { get; set; }
+}
+
+public class GitHubContentResponse
+{
+    public string? Sha { get; set; }
+}
+
+public class GitHubFileCommitResult
+{
+    public GitHubFileCommitContent? Content { get; set; }
+    public GitHubFileCommitInfo? Commit { get; set; }
+}
+
+public class GitHubFileCommitContent
+{
+    public string? Path { get; set; }
+    public string? HtmlUrl { get; set; }
+}
+
+public class GitHubFileCommitInfo
+{
+    public string? Sha { get; set; }
+}
+
+public class GitHubPullRequestResult
+{
+    public long Number { get; set; }
+    public string? HtmlUrl { get; set; }
+    public string? Title { get; set; }
 }

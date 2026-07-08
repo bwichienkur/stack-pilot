@@ -153,6 +153,10 @@ public class MockAiProvider : IAiProvider
             ? """{"businessSummary":"Automated analysis of the submitted ticket","functionalRequirements":"Implement the described feature with proper validation and error handling","nonFunctionalRequirements":"Response time < 200ms, 99.9% availability, secure by default","acceptanceCriteria":"Feature works as described\nAll tests pass\nNo security vulnerabilities","riskScore":4.5,"confidenceScore":0.82}"""
             : request.SystemPrompt.Contains("architect", StringComparison.OrdinalIgnoreCase)
             ? "## Implementation Plan\n\n### Affected Components\n- Service layer\n- API endpoints\n- Database schema\n\n### Steps\n1. Create feature branch\n2. Implement changes\n3. Add unit tests\n4. Update documentation\n\n### Rollback Plan\nRevert commit and redeploy previous version."
+            : request.SystemPrompt.Contains("software engineer", StringComparison.OrdinalIgnoreCase)
+            ? """{"language":"csharp","summary":"Implement approved ticket changes with validation and tests","files":[{"path":"src/Features/TicketFeature.cs","content":"namespace StackPilot.Features;\n\npublic sealed class TicketFeature\n{\n    public void Execute() { /* implementation */ }\n}","language":"csharp"}]}"""
+            : request.SystemPrompt.Contains("database migration", StringComparison.OrdinalIgnoreCase)
+            ? """{"summary":"Add schema changes for ticket","upSql":"-- UP migration\nALTER TABLE example ADD COLUMN IF NOT EXISTS feature_flag boolean NOT NULL DEFAULT false;","downSql":"-- DOWN migration\nALTER TABLE example DROP COLUMN IF EXISTS feature_flag;","warnings":["Review on staging before production"]}"""
             : request.SystemPrompt.Contains("technical documentation", StringComparison.OrdinalIgnoreCase)
             ? "# Documentation\n\n## Overview\nThis section describes the generated documentation content.\n\n## Security Considerations\nIncludes validation and fail-closed guidance."
             : $"Based on the available context, here is my analysis regarding: {request.UserPrompt[..Math.Min(100, request.UserPrompt.Length)]}...";
