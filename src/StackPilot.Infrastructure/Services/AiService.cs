@@ -233,6 +233,16 @@ public class AiService : IAiService
         if (ticket.Status is not (TicketStatus.Approved or TicketStatus.ImplementationInProgress))
             throw new InvalidOperationException("Ticket must be approved before generating code");
 
+        // Fail closed: when governance requires approval for code generation, require an explicit human-approved decision.
+        if (await _governance.RequiresApprovalAsync("generate_code"))
+        {
+            var hasApproval = await _db.Approvals.AnyAsync(
+                a => a.TicketId == ticketId && a.Decision == ApprovalDecision.Approved, ct);
+
+            if (!hasApproval)
+                throw new UnauthorizedAccessException("Human approval is required before AI code generation");
+        }
+
         await _planLimits.EnsureCanUseAiAsync(ticket.OrganizationId, ct: ct);
 
         var suggestedCode = $$"""
