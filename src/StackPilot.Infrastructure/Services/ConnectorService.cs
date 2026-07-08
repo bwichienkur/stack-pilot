@@ -69,6 +69,10 @@ public class ConnectorService : IConnectorService
 
         await _planLimits.EnsureCanCreateConnectorAsync(ws.OrganizationId, ct);
 
+        var def = await _db.ConnectorDefinitions.AsNoTracking()
+            .FirstOrDefaultAsync(d => d.Id == request.DefinitionId, ct)
+            ?? throw new KeyNotFoundException("Connector definition not found");
+
         var instance = new ConnectorInstance
         {
             OrganizationId = ws.OrganizationId,
@@ -96,8 +100,7 @@ public class ConnectorService : IConnectorService
         await _db.SaveChangesAsync(ct);
         await _audit.LogAsync("connector.created", "ConnectorInstance", instance.Id, ct: ct);
 
-        var def = await _db.ConnectorDefinitions.FindAsync([request.DefinitionId], ct);
-        return new ConnectorInstanceDto(instance.Id, instance.Name, def!.Type, instance.Status.ToString(),
+        return new ConnectorInstanceDto(instance.Id, instance.Name, def.Type, instance.Status.ToString(),
             instance.HealthStatus.ToString(), null, instance.CreatedAt);
     }
 

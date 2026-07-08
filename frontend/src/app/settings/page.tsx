@@ -10,7 +10,7 @@ import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast";
 import { STUB_NAV_FLAGS } from "@/lib/feature-flags";
-import { useApprovalGates, useUpdateApprovalGates, type ApprovalGate, type OrganizationInvite, type OutboundWebhook, type SamlConfig } from "@/lib/api-hooks";
+import { useApprovalGates, useUpdateApprovalGates, type ApprovalGate, type OrganizationInvite, type OrganizationInviteCreated, type InvitableRole, type OutboundWebhook, type SamlConfig } from "@/lib/api-hooks";
 import { Trash2, UserPlus } from "lucide-react";
 
 interface Settings {
@@ -83,12 +83,15 @@ export default function SettingsPage() {
   const [gates, setGates] = useState<ApprovalGate[]>([]);
   const [pendingInvites, setPendingInvites] = useState<OrganizationInvite[]>([]);
   const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState("Member");
+  const [inviteRoleId, setInviteRoleId] = useState("");
+  const [invitableRoles, setInvitableRoles] = useState<InvitableRole[]>([]);
+  const [lastInviteUrl, setLastInviteUrl] = useState<string | null>(null);
   const [webhooks, setWebhooks] = useState<OutboundWebhook[]>([]);
   const [webhookUrl, setWebhookUrl] = useState("");
   const [webhookEvents, setWebhookEvents] = useState("ticket.approved,ticket.released");
   const [samlConfig, setSamlConfig] = useState<SamlConfig>({ enabled: false });
   const [samlSaving, setSamlSaving] = useState(false);
+  const [gdprLoading, setGdprLoading] = useState(false);
 
   const { data: approvalGates } = useApprovalGates();
   const updateGates = useUpdateApprovalGates();
@@ -113,13 +116,14 @@ export default function SettingsPage() {
 
   const load = async () => {
     try {
-      const [s, m, b, invites, hooks, saml] = await Promise.all([
+      const [s, m, b, invites, hooks, saml, roles] = await Promise.all([
         api<Settings>(`/organizations/${orgId}/settings`, {}, token, orgId),
         api<Member[]>(`/organizations/${orgId}/members`, {}, token, orgId).catch(() => []),
         api<OrganizationBilling>(`/billing/organizations/${orgId}`, {}, token, orgId).catch(() => null),
         api<OrganizationInvite[]>(`/organizations/${orgId}/invites`, {}, token, orgId).catch(() => []),
         api<OutboundWebhook[]>(`/organizations/${orgId}/webhooks`, {}, token, orgId).catch(() => []),
         api<SamlConfig>(`/organizations/${orgId}/saml`, {}, token, orgId).catch(() => ({ enabled: false })),
+        api<InvitableRole[]>(`/organizations/roles`, {}, token, orgId).catch(() => []),
       ]);
       setSettings(s);
       setBilling(b);
@@ -130,6 +134,11 @@ export default function SettingsPage() {
       setPendingInvites(invites);
       setWebhooks(hooks);
       setSamlConfig(saml);
+      setInvitableRoles(roles);
+      if (roles.length > 0 && !inviteRoleId) {
+        const developer = roles.find((r) => r.name === "Developer") ?? roles[0];
+        setInviteRoleId(developer.id);
+      }
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Failed to load settings", "error");
     } finally {
@@ -150,17 +159,67 @@ export default function SettingsPage() {
   };
 
   const sendInvite = async () => {
-    if (!inviteEmail.trim()) return;
+    if (!inviteEmail.trim() || !inviteRoleId) return;
     try {
-      await api(`/organizations/${orgId}/invites`, {
+      const created = await api<OrganizationInviteCreated>(`/organizations/${orgId}/invites`, {
         method: "POST",
-        body: JSON.stringify({ email: inviteEmail.trim(), roleName: inviteRole }),
+        body: JSON.stringify({ email: inviteEmail.trim(), roleId: inviteRoleId }),
       }, token, orgId);
-      showToast("Invite sent", "success");
+      setLastInviteUrl(created.inviteUrl);
+      showToast("Invite created — share the link with your teammate", "success");
       setInviteEmail("");
       await load();
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Failed to send invite", "error");
+    }
+  };
+
+  const copyInviteLink = async () => {
+    if (!lastInviteUrl || typeof navigator === "undefined") return;
+    try {
+      await navigator.clipboard.writeText(lastInviteUrl);
+      showToast("Invite link copied", "success");
+    } catch {
+      showToast("Could not copy link", "error");
+    }
+  };
+
+  const exportOrganizationData = async () => {
+    if (!orgId || !token) return;
+    setGdprLoading(true);
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api/v1"}/organizations/${orgId}/export`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "X-Organization-Id": orgId },
+      });
+      if (!res.ok) throw new Error("Export failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `stackpilot-export-${orgId}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast("Data export downloaded", "success");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Export failed", "error");
+    } finally {
+      setGdprLoading(false);
+    }
+  };
+
+  const deleteOrganizationData = async () => {
+    if (!orgId || !token) return;
+    if (!window.confirm("Permanently erase all organization data? This cannot be undone.")) return;
+    setGdprLoading(true);
+    try {
+      await api(`/organizations/${orgId}/delete-data`, { method: "POST" }, token, orgId);
+      showToast("Organization data erased", "success");
+      router.push("/login");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Delete failed", "error");
+    } finally {
+      setGdprLoading(false);
     }
   };
 
@@ -403,7 +462,7 @@ export default function SettingsPage() {
 
             <Card className="p-6 space-y-4">
               <h2 className="text-lg font-semibold text-zinc-100">Feature modules</h2>
-              <p className="text-sm text-zinc-400">Enable preview modules in the sidebar. Core workflows (connectors, architecture, tickets, approvals) are always available.</p>
+              <p className="text-sm text-zinc-400">Toggle optional workflow modules in the sidebar.</p>
               <div className="space-y-3">
                 {STUB_NAV_FLAGS.map((key) => (
                   <label key={key} className="flex items-center justify-between gap-4 py-2 border-b border-zinc-800 last:border-0">
@@ -457,16 +516,23 @@ export default function SettingsPage() {
                   type="email"
                 />
                 <select
-                  value={inviteRole}
-                  onChange={(e) => setInviteRole(e.target.value)}
+                  value={inviteRoleId}
+                  onChange={(e) => setInviteRoleId(e.target.value)}
                   className="h-10 rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm text-zinc-100"
                 >
-                  {["Member", "Developer", "Client Admin"].map((r) => (
-                    <option key={r} value={r}>{r}</option>
+                  {invitableRoles.map((r) => (
+                    <option key={r.id} value={r.id}>{r.name}</option>
                   ))}
                 </select>
                 <Button onClick={sendInvite}><UserPlus className="h-4 w-4" /> Invite</Button>
               </div>
+              {lastInviteUrl && (
+                <div className="rounded-lg border border-zinc-700 bg-zinc-900/50 p-3 space-y-2">
+                  <p className="text-xs text-zinc-500">Share this invite link (valid 7 days):</p>
+                  <p className="text-sm text-zinc-300 break-all font-mono">{lastInviteUrl}</p>
+                  <Button size="sm" variant="secondary" onClick={copyInviteLink}>Copy link</Button>
+                </div>
+              )}
               {pendingInvites.length > 0 && (
                 <div className="space-y-2 pt-2">
                   <p className="text-xs text-zinc-500 uppercase tracking-wide">Pending invites</p>
@@ -513,7 +579,7 @@ export default function SettingsPage() {
               )}
             </Card>
 
-            {isProfessionalPlan && (
+            {isProfessionalPlan ? (
               <Card className="p-6 space-y-4">
                 <h2 className="text-lg font-semibold text-zinc-100">SAML SSO</h2>
                 <p className="text-sm text-zinc-400">Configure SAML 2.0 single sign-on for your identity provider.</p>
@@ -550,7 +616,30 @@ export default function SettingsPage() {
                   {samlSaving ? "Saving..." : "Save SAML config"}
                 </Button>
               </Card>
+            ) : (
+              <Card className="p-6 space-y-2">
+                <h2 className="text-lg font-semibold text-zinc-100">SAML SSO</h2>
+                <p className="text-sm text-zinc-400">
+                  SAML single sign-on is available on Professional and Enterprise plans.{" "}
+                  <Link href="/pricing" className="text-indigo-400 hover:text-indigo-300">View pricing</Link>
+                </p>
+              </Card>
             )}
+
+            <Card className="p-6 space-y-4">
+              <h2 className="text-lg font-semibold text-zinc-100">Data & privacy (GDPR)</h2>
+              <p className="text-sm text-zinc-400">
+                Export a JSON archive of organization data or permanently erase all tenant data. Erasure removes tickets, connectors, graph data, and audit logs.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="secondary" disabled={gdprLoading} onClick={exportOrganizationData}>
+                  Export organization data
+                </Button>
+                <Button size="sm" variant="destructive" disabled={gdprLoading} onClick={deleteOrganizationData}>
+                  Erase organization data
+                </Button>
+              </div>
+            </Card>
 
             <Card className="p-6 space-y-4">
               <h2 className="text-lg font-semibold text-zinc-100">Notifications</h2>

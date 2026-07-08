@@ -36,6 +36,21 @@ export interface OrganizationInvite {
   expiresAt: string;
 }
 
+export interface OrganizationInviteCreated {
+  id: string;
+  email: string;
+  roleName: string;
+  expiresAt: string;
+  token: string;
+  inviteUrl: string;
+}
+
+export interface InvitableRole {
+  id: string;
+  name: string;
+  description?: string;
+}
+
 export interface OutboundWebhook {
   id: string;
   url: string;

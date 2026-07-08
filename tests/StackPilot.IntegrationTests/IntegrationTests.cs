@@ -39,8 +39,25 @@ public class StackPilotWebApplicationFactory : WebApplicationFactory<Program>
             });
 
             services.AddSingleton<IBackgroundJobService, NoOpBackgroundJobService>();
+
+            var cacheDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(ICacheService));
+            if (cacheDescriptor is not null) services.Remove(cacheDescriptor);
+            services.AddSingleton<ICacheService, NoOpCacheService>();
         });
     }
+}
+
+public class NoOpCacheService : ICacheService
+{
+    public Task<T?> GetAsync<T>(string key, CancellationToken ct = default) where T : class =>
+        Task.FromResult<T?>(null);
+
+    public Task SetAsync<T>(string key, T value, TimeSpan? expiry = null, CancellationToken ct = default) where T : class =>
+        Task.CompletedTask;
+
+    public Task RemoveAsync(string key, CancellationToken ct = default) => Task.CompletedTask;
+
+    public Task RemoveByPrefixAsync(string prefix, CancellationToken ct = default) => Task.CompletedTask;
 }
 
 public class NoOpBackgroundJobService : IBackgroundJobService
@@ -504,6 +521,81 @@ public class AuthIntegrationTests : IClassFixture<StackPilotWebApplicationFactor
 
         var response = await _client.GetAsync($"/api/v1/organizations/{userB.OrgId}/workspaces");
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task CreateInvite_Returns_Token_And_Accept_Works()
+    {
+        var inviteeEmail = $"invitee_{Guid.NewGuid():N}@stackpilot.test";
+        var (auth, orgId) = await RegisterAndCreateOrg($"inviter_{Guid.NewGuid():N}@stackpilot.test");
+        SetAuthHeaders(auth, orgId);
+
+        var inviteResponse = await _client.PostAsJsonAsync($"/api/v1/organizations/{orgId}/invites", new
+        {
+            email = inviteeEmail,
+            roleName = "Developer"
+        });
+        Assert.Equal(HttpStatusCode.OK, inviteResponse.StatusCode);
+
+        var inviteBody = await inviteResponse.Content.ReadFromJsonAsync<ApiResponse<OrganizationInviteCreatedDto>>();
+        Assert.NotNull(inviteBody?.Data?.Token);
+        Assert.Contains("/invite/accept?token=", inviteBody.Data.InviteUrl);
+
+        await _client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            email = inviteeEmail,
+            password = "TestPassword123!",
+            firstName = "Invited",
+            lastName = "User"
+        });
+
+        var loginResponse = await _client.PostAsJsonAsync("/api/v1/auth/login", new
+        {
+            email = inviteeEmail,
+            password = "TestPassword123!"
+        });
+        var loginBody = await loginResponse.Content.ReadFromJsonAsync<ApiResponse<AuthResponse>>();
+        var inviteeToken = loginBody!.Data!.AccessToken;
+
+        _client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", inviteeToken);
+        _client.DefaultRequestHeaders.Remove("X-Organization-Id");
+
+        var acceptResponse = await _client.PostAsJsonAsync("/api/v1/organizations/invites/accept", new
+        {
+            token = inviteBody.Data.Token
+        });
+        Assert.Equal(HttpStatusCode.OK, acceptResponse.StatusCode);
+
+        var acceptBody = await acceptResponse.Content.ReadFromJsonAsync<ApiResponse<OrganizationDto>>();
+        Assert.Equal(orgId, acceptBody!.Data!.Id);
+
+        _client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", inviteeToken);
+        _client.DefaultRequestHeaders.Remove("X-Organization-Id");
+
+        var orgsResponse = await _client.GetAsync("/api/v1/organizations");
+        var orgsBody = await orgsResponse.Content.ReadFromJsonAsync<ApiResponse<List<OrganizationDto>>>();
+        Assert.Contains(orgsBody!.Data!, o => o.Id == orgId);
+    }
+
+    [Fact]
+    public async Task Export_And_Delete_Organization_Data()
+    {
+        var (auth, orgId) = await RegisterAndCreateOrg($"gdpr_{Guid.NewGuid():N}@stackpilot.test");
+        SetAuthHeaders(auth, orgId);
+
+        var exportResponse = await _client.PostAsync($"/api/v1/organizations/{orgId}/export", null);
+        Assert.Equal(HttpStatusCode.OK, exportResponse.StatusCode);
+        Assert.Equal("application/json", exportResponse.Content.Headers.ContentType?.MediaType);
+
+        var exportJson = await exportResponse.Content.ReadAsStringAsync();
+        Assert.Contains(orgId.ToString(), exportJson, StringComparison.OrdinalIgnoreCase);
+
+        var deleteResponse = await _client.PostAsync($"/api/v1/organizations/{orgId}/delete-data", null);
+        Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+
+        var orgResponse = await _client.GetAsync($"/api/v1/organizations/{orgId}");
+        var orgBody = await orgResponse.Content.ReadFromJsonAsync<ApiResponse<OrganizationDto>>();
+        Assert.False(orgBody!.Data!.IsActive);
     }
 
     private void SetAuthHeaders(string auth, Guid orgId)

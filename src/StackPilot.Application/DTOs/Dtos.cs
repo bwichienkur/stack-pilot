@@ -15,8 +15,17 @@ public record OrganizationSettingsDto(Guid Id, string Name, string Slug, string 
 public record UpdateOrganizationSettingsRequest(string? Name, Dictionary<string, bool>? FeatureFlags, string? SlackWebhookUrl = null);
 public record OrganizationMemberDto(Guid UserId, string Email, string? FirstName, string? LastName, string RoleName, DateTime JoinedAt);
 public record OrganizationInviteDto(Guid Id, string Email, string RoleName, DateTime ExpiresAt, DateTime? AcceptedAt, DateTime CreatedAt);
-public record CreateInviteRequest(string Email, Guid RoleId);
+public record OrganizationInviteCreatedDto(
+    Guid Id, string Email, string RoleName, DateTime ExpiresAt, DateTime? AcceptedAt, DateTime CreatedAt,
+    string Token, string InviteUrl);
+public record CreateInviteRequest(string Email, Guid? RoleId = null, string? RoleName = null);
 public record AcceptInviteRequest(string Token);
+public record RoleDto(Guid Id, string Name, string? Description);
+public record OrganizationSamlConfigDto(
+    bool Enabled, string? EntityId, string? IdpMetadataUrl, string? IdpCertificate,
+    string? LoginUrl, string? MetadataUrl);
+public record UpdateOrganizationSamlConfigRequest(
+    bool Enabled, string? EntityId, string? IdpMetadataUrl, string? IdpCertificate);
 public record UpdateMemberRoleRequest(Guid UserId, Guid RoleId);
 public record WorkspaceDto(Guid Id, Guid OrganizationId, string Name, string Slug, string? Description, bool IsActive);
 public record CreateWorkspaceRequest(string Name, string Slug, string? Description);

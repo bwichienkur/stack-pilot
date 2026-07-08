@@ -54,3 +54,21 @@ jobs:
         with:
           dotnet-version: "8.0.x"
       - run: dotnet test tests/StackPilot.IntegrationTests/StackPilot.IntegrationTests.csproj -c Release --verbosity normal
+        env:
+          POSTGRES_TEST_CONNECTION: Host=localhost;Port=5432;Database=stackpilot;Username=stackpilot;Password=stackpilot
+
+  staging-e2e:
+    runs-on: ubuntu-latest
+    needs: smoke-test
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Staging E2E reminder
+        run: |
+          echo "## Staging E2E" >> $GITHUB_STEP_SUMMARY
+          echo "Run Playwright against staging after deploy:" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "PLAYWRIGHT_BASE_URL=https://app.staging.stackpilot.dev \\" >> $GITHUB_STEP_SUMMARY
+          echo "PLAYWRIGHT_API_URL=https://api.staging.stackpilot.dev/api/v1 \\" >> $GITHUB_STEP_SUMMARY
+          echo "DEMO_SEED=true npm run test:e2e" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY

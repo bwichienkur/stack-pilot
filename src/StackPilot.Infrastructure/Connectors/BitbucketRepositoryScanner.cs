@@ -31,14 +31,28 @@ public class BitbucketRepositoryScanner : IRepositoryScanner
             var json = await response.Content.ReadFromJsonAsync<JsonElement>(ct);
             var language = json.TryGetProperty("language", out var lang) ? lang.GetString() : "unknown";
             var description = json.TryGetProperty("description", out var desc) ? desc.GetString() : null;
+            var mainbranch = json.TryGetProperty("mainbranch", out var mb) && mb.TryGetProperty("name", out var mbName)
+                ? mbName.GetString() ?? "main" : "main";
+
+            var frameworks = new List<string>();
+            var stack = language is not null ? new List<string> { language } : new List<string>();
+            var pkgRes = await client.GetAsync(
+                $"https://api.bitbucket.org/2.0/repositories/{workspace}/{repositoryName}/src/{mainbranch}/package.json", ct);
+            if (pkgRes.IsSuccessStatusCode)
+            {
+                var pkg = await pkgRes.Content.ReadAsStringAsync(ct);
+                if (!stack.Contains("JavaScript")) stack.Add("JavaScript");
+                if (pkg.Contains("\"next\"", StringComparison.Ordinal)) frameworks.Add("Next.js");
+                if (pkg.Contains("\"react\"", StringComparison.Ordinal)) frameworks.Add("React");
+            }
 
             return new RepositoryScanResult
             {
                 RepositoryName = repositoryName,
                 ApplicationName = repositoryName,
-                Purpose = description ?? "Bitbucket repository inventory scan",
-                TechnologyStack = language is not null ? [language] : ["Unknown"],
-                Frameworks = [],
+                Purpose = description ?? "Bitbucket repository scan",
+                TechnologyStack = stack.Count > 0 ? stack : ["Unknown"],
+                Frameworks = frameworks,
                 Metadata = new()
                 {
                     ["provider"] = "bitbucket",

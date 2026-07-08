@@ -25,7 +25,7 @@ export default function DeploymentsPage() {
       <div className="space-y-6">
         <div>
           <h1 className="text-2xl font-bold text-zinc-100">Deployments</h1>
-          <p className="text-zinc-400 mt-1">CI/CD build runs from GitHub Actions webhooks</p>
+          <p className="text-zinc-400 mt-1">CI/CD build runs from GitHub Actions, Jenkins, and Azure Pipelines</p>
         </div>
 
         {error && <p className="text-sm text-red-400">{error instanceof Error ? error.message : "Failed to load"}</p>}
@@ -33,7 +33,7 @@ export default function DeploymentsPage() {
         {isLoading ? <PageSkeleton rows={4} /> : runs.length === 0 ? (
           <EmptyState
             title="No build runs yet"
-            description="Configure a GitHub Actions connector and point webhooks to POST /api/v1/webhooks/github"
+            description="Sync a CI/CD connector (GitHub Actions, Jenkins, or Azure Pipelines) or configure GitHub webhooks"
           />
         ) : (
           <div className="space-y-3">

@@ -240,13 +240,20 @@ public class OrganizationService : IOrganizationService
     private readonly ITenantContext _tenant;
     private readonly IApprovalGateService _approvalGates;
     private readonly IPlanLimitService _planLimits;
+    private readonly IConfiguration _configuration;
 
-    public OrganizationService(AppDbContext db, ITenantContext tenant, IApprovalGateService approvalGates, IPlanLimitService planLimits)
+    public OrganizationService(
+        AppDbContext db,
+        ITenantContext tenant,
+        IApprovalGateService approvalGates,
+        IPlanLimitService planLimits,
+        IConfiguration configuration)
     {
         _db = db;
         _tenant = tenant;
         _approvalGates = approvalGates;
         _planLimits = planLimits;
+        _configuration = configuration;
     }
 
     public async Task<OrganizationDto> CreateAsync(CreateOrganizationRequest request, Guid userId, CancellationToken ct = default)
@@ -342,11 +349,11 @@ public class OrganizationService : IOrganizationService
         if (!string.IsNullOrWhiteSpace(request.Name))
             org.Name = request.Name.Trim();
 
-        var (flags, slack) = ReadSettings(org.SettingsJson);
+        var (flags, slack, _) = ReadAllSettings(org.SettingsJson);
         if (request.FeatureFlags is not null) flags = request.FeatureFlags;
         if (request.SlackWebhookUrl is not null) slack = request.SlackWebhookUrl;
 
-        org.SettingsJson = JsonSerializer.Serialize(new { featureFlags = flags, slackWebhookUrl = slack });
+        org.SettingsJson = SerializeSettings(flags, slack, ReadSamlSettings(org.SettingsJson));
         await _db.SaveChangesAsync(ct);
         return MapSettings(org);
     }
@@ -363,7 +370,14 @@ public class OrganizationService : IOrganizationService
             .ToListAsync(ct);
     }
 
-    public async Task<OrganizationInviteDto> CreateInviteAsync(Guid orgId, CreateInviteRequest request, Guid invitedByUserId, CancellationToken ct = default)
+    public async Task<List<RoleDto>> GetInvitableRolesAsync(CancellationToken ct = default) =>
+        await _db.Roles
+            .Where(r => r.IsSystem && r.SystemRoleType != SystemRole.PlatformSuperAdmin)
+            .OrderBy(r => r.Name)
+            .Select(r => new RoleDto(r.Id, r.Name, r.Description))
+            .ToListAsync(ct);
+
+    public async Task<OrganizationInviteCreatedDto> CreateInviteAsync(Guid orgId, CreateInviteRequest request, Guid invitedByUserId, CancellationToken ct = default)
     {
         await _planLimits.EnsureCanAddSeatAsync(orgId, ct);
 
@@ -375,15 +389,14 @@ public class OrganizationService : IOrganizationService
                 i.OrganizationId == orgId && i.Email == email && i.AcceptedAt == null && i.ExpiresAt > DateTime.UtcNow, ct))
             throw new InvalidOperationException("A pending invite already exists for this email");
 
-        var role = await _db.Roles.FindAsync([request.RoleId], ct)
-            ?? throw new KeyNotFoundException("Role not found");
+        var role = await ResolveInviteRoleAsync(request, ct);
 
         var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
         var invite = new OrganizationInvite
         {
             OrganizationId = orgId,
             Email = email,
-            RoleId = request.RoleId,
+            RoleId = role.Id,
             TokenHash = HashInviteToken(token),
             InvitedByUserId = invitedByUserId,
             ExpiresAt = DateTime.UtcNow.AddDays(7)
@@ -392,7 +405,27 @@ public class OrganizationService : IOrganizationService
         _db.OrganizationInvites.Add(invite);
         await _db.SaveChangesAsync(ct);
 
-        return new OrganizationInviteDto(invite.Id, invite.Email, role.Name, invite.ExpiresAt, invite.AcceptedAt, invite.CreatedAt);
+        var frontendUrl = (_configuration["Frontend:Url"] ?? "http://localhost:3000").TrimEnd('/');
+        var inviteUrl = $"{frontendUrl}/invite/accept?token={Uri.EscapeDataString(token)}";
+
+        return new OrganizationInviteCreatedDto(
+            invite.Id, invite.Email, role.Name, invite.ExpiresAt, invite.AcceptedAt, invite.CreatedAt, token, inviteUrl);
+    }
+
+    private async Task<Role> ResolveInviteRoleAsync(CreateInviteRequest request, CancellationToken ct)
+    {
+        if (request.RoleId is Guid roleId && roleId != Guid.Empty)
+        {
+            return await _db.Roles.FindAsync([roleId], ct)
+                ?? throw new KeyNotFoundException("Role not found");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.RoleName))
+            throw new ArgumentException("RoleId or RoleName is required");
+
+        var normalized = request.RoleName.Replace(" ", "", StringComparison.Ordinal);
+        return await _db.Roles.FirstOrDefaultAsync(r => r.Name == normalized || r.Name == request.RoleName, ct)
+            ?? throw new KeyNotFoundException("Role not found");
     }
 
     public async Task<List<OrganizationInviteDto>> GetInvitesAsync(Guid orgId, CancellationToken ct = default)
@@ -470,29 +503,70 @@ public class OrganizationService : IOrganizationService
         return new OrganizationMemberDto(member.UserId, member.User.Email, member.User.FirstName, member.User.LastName, role.Name, member.JoinedAt);
     }
 
-    private static string HashInviteToken(string token)
+    public async Task<OrganizationSamlConfigDto> GetSamlConfigAsync(Guid orgId, CancellationToken ct = default)
     {
-        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(token));
-        return Convert.ToHexString(bytes);
+        var org = await _db.Organizations.FindAsync([orgId], ct)
+            ?? throw new KeyNotFoundException("Organization not found");
+
+        var saml = ReadSamlSettings(org.SettingsJson);
+        var apiBase = (_configuration["Authentication:Saml:AcsUrl"] ?? "").Replace("/api/v1/auth/saml/acs", "", StringComparison.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(apiBase))
+            apiBase = "http://localhost:5000";
+
+        return new OrganizationSamlConfigDto(
+            saml.Enabled,
+            saml.EntityId ?? $"stackpilot-{org.Slug}",
+            saml.IdpMetadataUrl,
+            MaskCertificate(saml.IdpCertificate),
+            $"{apiBase}/api/v1/auth/saml/login?orgSlug={org.Slug}",
+            $"{apiBase}/api/v1/auth/saml/metadata?orgSlug={org.Slug}");
     }
 
-    private static OrganizationSettingsDto MapSettings(Organization org)
+    public async Task<OrganizationSamlConfigDto> UpdateSamlConfigAsync(
+        Guid orgId, UpdateOrganizationSamlConfigRequest request, CancellationToken ct = default)
     {
-        var flags = OrganizationFeatureFlags.Default;
-        string? slackWebhook = null;
-        if (!string.IsNullOrEmpty(org.SettingsJson))
+        var org = await _db.Organizations.FindAsync([orgId], ct)
+            ?? throw new KeyNotFoundException("Organization not found");
+
+        if (!PlanCatalog.LimitsFor(org.Plan).SamlSso)
+            throw new InvalidOperationException("SAML SSO requires Professional plan or higher");
+
+        var (flags, slack, saml) = ReadAllSettings(org.SettingsJson);
+        saml = saml with
         {
-            (flags, slackWebhook) = ReadSettings(org.SettingsJson);
-        }
+            Enabled = request.Enabled,
+            EntityId = request.EntityId?.Trim(),
+            IdpMetadataUrl = request.IdpMetadataUrl?.Trim(),
+            IdpCertificate = string.IsNullOrWhiteSpace(request.IdpCertificate)
+                ? saml.IdpCertificate
+                : request.IdpCertificate.Trim()
+        };
 
-        return new OrganizationSettingsDto(org.Id, org.Name, org.Slug, org.Plan.ToString(), flags, slackWebhook);
+        org.SettingsJson = SerializeSettings(flags, slack, saml);
+        await _db.SaveChangesAsync(ct);
+        return await GetSamlConfigAsync(orgId, ct);
     }
 
-    private static (Dictionary<string, bool> Flags, string? Slack) ReadSettings(string? settingsJson)
+    private static string? MaskCertificate(string? pem)
+    {
+        if (string.IsNullOrWhiteSpace(pem)) return null;
+        return pem.Length <= 40 ? "***" : $"{pem[..20]}...{pem[^20..]}";
+    }
+
+    private sealed record SamlSettings(bool Enabled, string? EntityId, string? IdpMetadataUrl, string? IdpCertificate);
+
+    private static SamlSettings ReadSamlSettings(string? settingsJson)
+    {
+        var (_, _, saml) = ReadAllSettings(settingsJson);
+        return saml;
+    }
+
+    private static (Dictionary<string, bool> Flags, string? Slack, SamlSettings Saml) ReadAllSettings(string? settingsJson)
     {
         var flags = OrganizationFeatureFlags.Default;
         string? slack = null;
-        if (string.IsNullOrEmpty(settingsJson)) return (flags, slack);
+        var saml = new SamlSettings(false, null, null, null);
+        if (string.IsNullOrEmpty(settingsJson)) return (flags, slack, saml);
 
         try
         {
@@ -504,9 +578,49 @@ public class OrganizationService : IOrganizationService
             }
             if (doc.RootElement.TryGetProperty("slackWebhookUrl", out var slackProp))
                 slack = slackProp.GetString();
+            if (doc.RootElement.TryGetProperty("saml", out var samlProp))
+            {
+                saml = new SamlSettings(
+                    samlProp.TryGetProperty("enabled", out var en) && en.GetBoolean(),
+                    samlProp.TryGetProperty("entityId", out var eid) ? eid.GetString() : null,
+                    samlProp.TryGetProperty("idpMetadataUrl", out var meta) ? meta.GetString() : null,
+                    samlProp.TryGetProperty("idpCertificate", out var cert) ? cert.GetString() : null);
+            }
         }
         catch { /* defaults */ }
 
+        return (flags, slack, saml);
+    }
+
+    private static string SerializeSettings(Dictionary<string, bool> flags, string? slack, SamlSettings saml) =>
+        JsonSerializer.Serialize(new
+        {
+            featureFlags = flags,
+            slackWebhookUrl = slack,
+            saml = new
+            {
+                enabled = saml.Enabled,
+                entityId = saml.EntityId,
+                idpMetadataUrl = saml.IdpMetadataUrl,
+                idpCertificate = saml.IdpCertificate
+            }
+        });
+
+    private static string HashInviteToken(string token)
+    {
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(token));
+        return Convert.ToHexString(bytes);
+    }
+
+    private static OrganizationSettingsDto MapSettings(Organization org)
+    {
+        var (flags, slack, _) = ReadAllSettings(org.SettingsJson);
+        return new OrganizationSettingsDto(org.Id, org.Name, org.Slug, org.Plan.ToString(), flags, slack);
+    }
+
+    private static (Dictionary<string, bool> Flags, string? Slack) ReadSettings(string? settingsJson)
+    {
+        var (flags, slack, _) = ReadAllSettings(settingsJson);
         return (flags, slack);
     }
 }

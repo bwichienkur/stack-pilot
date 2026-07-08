@@ -7,7 +7,7 @@ import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast";
 
-const steps = ["Organization", "Workspace", "Connect"];
+const steps = ["Organization", "Workspace", "Invite team", "Connect"];
 
 export default function OnboardingPage() {
   const { token, user, setAuth, setOrg, setWorkspace } = useAuth();
@@ -91,9 +91,17 @@ export default function OnboardingPage() {
 
           {step === 2 && (
             <div className="space-y-4 text-center">
-              <p className="text-zinc-400">Connect your first repository to populate your architecture graph.</p>
-              <Button className="w-full" onClick={() => router.push("/connectors")}>Connect Repository</Button>
-              <Button variant="secondary" className="w-full" onClick={() => router.push("/")}>Skip for now</Button>
+              <p className="text-zinc-400">Invite teammates from Settings to collaborate on approvals and releases.</p>
+              <Button className="w-full" onClick={() => router.push("/settings")}>Open team invites</Button>
+              <Button variant="secondary" className="w-full" onClick={() => setStep(3)}>Skip for now</Button>
+            </div>
+          )}
+
+          {step === 3 && (
+            <div className="space-y-4 text-center">
+              <p className="text-zinc-400">Connect your first integration to populate your architecture graph.</p>
+              <Button className="w-full" onClick={() => router.push("/connectors")}>Add connector</Button>
+              <Button variant="secondary" className="w-full" onClick={() => router.push("/")}>Go to dashboard</Button>
             </div>
           )}
         </CardContent>

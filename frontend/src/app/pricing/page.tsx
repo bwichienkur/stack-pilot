@@ -167,6 +167,16 @@ export default function PricingPage() {
             <strong className="text-zinc-200">20% off your first year</strong> (coupon: DESIGNPARTNER20 in Stripe).
           </p>
         </Card>
+
+        <Card className="p-8 border-zinc-800">
+          <h2 className="text-lg font-semibold mb-2">SAML SSO</h2>
+          <p className="text-sm text-zinc-400 max-w-3xl">
+            SAML 2.0 single sign-on is included on <strong className="text-zinc-200">Professional</strong> and{" "}
+            <strong className="text-zinc-200">Enterprise</strong> plans. Trial and Starter organizations can configure
+            IdP metadata in settings after upgrading. Production SAML requires IdP certificate configuration; demo
+            environments may use dev-mode login when explicitly enabled.
+          </p>
+        </Card>
       </main>
     </div>
   );

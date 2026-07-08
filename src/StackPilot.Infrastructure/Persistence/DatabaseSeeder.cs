@@ -121,6 +121,21 @@ public static class DatabaseSeeder
         };
         db.Tickets.Add(ticket);
 
+        var githubDef = await db.ConnectorDefinitions.FirstAsync(d => d.Type == "github_repository");
+        var connector = new ConnectorInstance
+        {
+            OrganizationId = org.Id,
+            WorkspaceId = workspace.Id,
+            DefinitionId = githubDef.Id,
+            Name = "GitHub — customer-portal",
+            ConfigJson = """{"repository":"acme/customer-portal","owner":"acme"}""",
+            Status = ConnectorStatus.Active,
+            HealthStatus = HealthStatus.Healthy,
+            LastSyncAt = DateTime.UtcNow.AddHours(-1),
+            LastHealthAt = DateTime.UtcNow
+        };
+        db.ConnectorInstances.Add(connector);
+
         db.DocumentationPages.Add(new DocumentationPage
         {
             OrganizationId = org.Id,
@@ -130,6 +145,20 @@ public static class DatabaseSeeder
         });
 
         await db.SaveChangesAsync();
+
+        db.BuildRuns.Add(new BuildRun
+        {
+            OrganizationId = org.Id,
+            TicketId = ticket.Id,
+            ConnectorId = connector.Id,
+            ExternalId = "demo-build-42",
+            Status = BuildStatus.Completed,
+            Conclusion = "success",
+            PullRequestUrl = "https://github.com/acme/customer-portal/pull/42",
+            LogsUrl = "https://github.com/acme/customer-portal/actions/runs/1",
+            StartedAt = DateTime.UtcNow.AddHours(-2),
+            CompletedAt = DateTime.UtcNow.AddHours(-1).AddMinutes(45)
+        });
 
         db.ReleaseSchedules.Add(new ReleaseSchedule
         {
