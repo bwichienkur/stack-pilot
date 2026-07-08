@@ -9,30 +9,39 @@ namespace StackPilot.IntegrationTests;
 /// <summary>
 /// Verifies Postgres RLS tenant isolation when stackpilot.organization_id is set.
 /// </summary>
+[Collection("Postgres")]
 public class PostgresRlsIsolationTests
 {
-    private readonly string? _connectionString = Environment.GetEnvironmentVariable("POSTGRES_TEST_CONNECTION");
+    private readonly PostgresDatabaseFixture _fixture;
+
+    public PostgresRlsIsolationTests(PostgresDatabaseFixture fixture) => _fixture = fixture;
 
     [Fact]
     public async Task Postgres_Rls_Isolates_Tickets_By_Organization()
     {
-        if (string.IsNullOrWhiteSpace(_connectionString))
+        if (string.IsNullOrWhiteSpace(_fixture.ConnectionString))
             return;
 
+        await _fixture.EnsureMigratedAsync();
+
         var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseNpgsql(_connectionString)
+            .UseNpgsql(_fixture.ConnectionString)
             .Options;
 
         var setupTenant = new TenantContext();
         setupTenant.DisableTenantFilter();
         await using var setup = new AppDbContext(options, setupTenant);
-        await setup.Database.MigrateAsync();
 
         var orgA = Guid.NewGuid();
         var orgB = Guid.NewGuid();
         var wsA = Guid.NewGuid();
         var wsB = Guid.NewGuid();
+        var userA = Guid.NewGuid();
+        var userB = Guid.NewGuid();
 
+        setup.Users.AddRange(
+            new ApplicationUser { Id = userA, Email = $"user-a-{userA:N}@rls.test", PasswordHash = "x" },
+            new ApplicationUser { Id = userB, Email = $"user-b-{userB:N}@rls.test", PasswordHash = "x" });
         setup.Organizations.AddRange(
             new Organization { Id = orgA, Name = "Org A", Slug = $"org-a-{orgA:N}"[..12], Plan = OrganizationPlan.Trial },
             new Organization { Id = orgB, Name = "Org B", Slug = $"org-b-{orgB:N}"[..12], Plan = OrganizationPlan.Trial });
@@ -40,8 +49,8 @@ public class PostgresRlsIsolationTests
             new Workspace { Id = wsA, OrganizationId = orgA, Name = "WS A", Slug = "ws-a" },
             new Workspace { Id = wsB, OrganizationId = orgB, Name = "WS B", Slug = "ws-b" });
         setup.Tickets.AddRange(
-            new Ticket { OrganizationId = orgA, WorkspaceId = wsA, Title = "Ticket A", TicketType = TicketType.Bug, RequesterId = Guid.NewGuid(), Status = TicketStatus.Submitted },
-            new Ticket { OrganizationId = orgB, WorkspaceId = wsB, Title = "Ticket B", TicketType = TicketType.Bug, RequesterId = Guid.NewGuid(), Status = TicketStatus.Submitted });
+            new Ticket { OrganizationId = orgA, WorkspaceId = wsA, Title = "Ticket A", TicketType = TicketType.Bug, RequesterId = userA, Status = TicketStatus.Submitted },
+            new Ticket { OrganizationId = orgB, WorkspaceId = wsB, Title = "Ticket B", TicketType = TicketType.Bug, RequesterId = userB, Status = TicketStatus.Submitted });
         await setup.SaveChangesAsync();
 
         await using var tenantA = new AppDbContext(options, CreateTenant(orgA));

@@ -7,22 +7,26 @@ namespace StackPilot.IntegrationTests;
 /// <summary>
 /// Runs against real PostgreSQL when POSTGRES_TEST_CONNECTION is set (CI backend job).
 /// </summary>
+[Collection("Postgres")]
 public class PostgresIntegrationTests
 {
-    private readonly string? _connectionString = Environment.GetEnvironmentVariable("POSTGRES_TEST_CONNECTION");
+    private readonly PostgresDatabaseFixture _fixture;
+
+    public PostgresIntegrationTests(PostgresDatabaseFixture fixture) => _fixture = fixture;
 
     [Fact]
     public async Task Postgres_Migrations_And_Rls_Policies_Apply()
     {
-        if (string.IsNullOrWhiteSpace(_connectionString))
+        if (string.IsNullOrWhiteSpace(_fixture.ConnectionString))
             return;
 
+        await _fixture.EnsureMigratedAsync();
+
         var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseNpgsql(_connectionString)
+            .UseNpgsql(_fixture.ConnectionString)
             .Options;
 
         await using var ctx = new AppDbContext(options, new TenantContext());
-        await ctx.Database.MigrateAsync();
         Assert.True(await ctx.Database.CanConnectAsync());
 
         await using var conn = ctx.Database.GetDbConnection();
