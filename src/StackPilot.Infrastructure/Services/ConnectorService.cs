@@ -65,6 +65,9 @@ public class ConnectorService : IConnectorService
         var ws = await _db.Workspaces.FindAsync([workspaceId], ct)
             ?? throw new KeyNotFoundException("Workspace not found");
 
+        if (_tenant.OrganizationId is Guid tenantOrgId && tenantOrgId != ws.OrganizationId)
+            throw new UnauthorizedAccessException("Workspace does not belong to the current organization");
+
         _tenant.SetOrganization(ws.OrganizationId);
 
         await _planLimits.EnsureCanCreateConnectorAsync(ws.OrganizationId, ct);
