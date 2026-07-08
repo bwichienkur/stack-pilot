@@ -56,11 +56,12 @@ public class PostgresRlsIsolationTests
             new Ticket { OrganizationId = orgB, WorkspaceId = wsB, Title = titleB, TicketType = TicketType.Bug, RequesterId = userB, Status = TicketStatus.Submitted });
         await setup.SaveChangesAsync();
 
-        var titlesA = await QueryTicketTitlesAsync(_fixture.ConnectionString!, orgA, suffix);
+        var appConn = _fixture.AppConnectionString ?? throw new InvalidOperationException("App connection not configured");
+        var titlesA = await QueryTicketTitlesAsync(appConn, orgA, suffix);
         Assert.Contains(titleA, titlesA);
         Assert.DoesNotContain(titleB, titlesA);
 
-        var titlesB = await QueryTicketTitlesAsync(_fixture.ConnectionString!, orgB, suffix);
+        var titlesB = await QueryTicketTitlesAsync(appConn, orgB, suffix);
         Assert.Contains(titleB, titlesB);
         Assert.DoesNotContain(titleA, titlesB);
     }
