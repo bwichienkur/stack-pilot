@@ -14,6 +14,7 @@ StackPilot implements technical controls aligned with SOC 2 Trust Services Crite
 | Rate limiting | Auth and AI endpoints |
 | Change management | Ticket workflow state machine, approval gates |
 | Data retention | `DataRetentionJob` purges audit logs per plan tier |
+| GDPR export/delete | `POST /organizations/{id}/export` and `POST /organizations/{id}/delete-data` APIs + Settings UI |
 
 ## Gaps for certification
 
@@ -21,7 +22,6 @@ StackPilot implements technical controls aligned with SOC 2 Trust Services Crite
 - Penetration test report
 - Employee security training records
 - SIEM integration and alerting runbooks
-- GDPR export/delete UI (API implemented via `IComplianceService`)
 
 ## Evidence collection
 

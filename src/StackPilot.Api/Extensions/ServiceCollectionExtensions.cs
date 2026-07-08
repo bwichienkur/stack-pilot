@@ -50,6 +50,8 @@ public static class ServiceCollectionExtensions
             });
         }
 
+        authBuilder.AddStackPilotSaml(configuration, services);
+
         return services;
     }
 }

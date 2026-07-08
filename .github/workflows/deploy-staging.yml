@@ -10,31 +10,53 @@ on:
       - "Dockerfile.*"
       - "docker-compose.yml"
 
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/stackpilot
+
 jobs:
   build-images:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build API image
-        run: docker build -f Dockerfile.api -t stackpilot-api:staging .
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build Workers image
-        run: docker build -f Dockerfile.workers -t stackpilot-workers:staging .
+      - name: Build and push API image
+        run: |
+          docker build -f Dockerfile.api -t ${{ env.IMAGE_PREFIX }}-api:staging -t ${{ env.IMAGE_PREFIX }}-api:${{ github.sha }} .
+          docker push ${{ env.IMAGE_PREFIX }}-api:staging
+          docker push ${{ env.IMAGE_PREFIX }}-api:${{ github.sha }}
 
-      - name: Build Frontend image
-        run: docker build -f Dockerfile.frontend --build-arg NEXT_PUBLIC_API_URL=https://api.staging.stackpilot.dev/api/v1 -t stackpilot-frontend:staging .
+      - name: Build and push Workers image
+        run: |
+          docker build -f Dockerfile.workers -t ${{ env.IMAGE_PREFIX }}-workers:staging -t ${{ env.IMAGE_PREFIX }}-workers:${{ github.sha }} .
+          docker push ${{ env.IMAGE_PREFIX }}-workers:staging
+          docker push ${{ env.IMAGE_PREFIX }}-workers:${{ github.sha }}
+
+      - name: Build and push Frontend image
+        run: |
+          docker build -f Dockerfile.frontend \
+            --build-arg NEXT_PUBLIC_API_URL=${{ vars.STAGING_API_URL || 'https://api.staging.stackpilot.dev/api/v1' }} \
+            -t ${{ env.IMAGE_PREFIX }}-frontend:staging \
+            -t ${{ env.IMAGE_PREFIX }}-frontend:${{ github.sha }} .
+          docker push ${{ env.IMAGE_PREFIX }}-frontend:staging
+          docker push ${{ env.IMAGE_PREFIX }}-frontend:${{ github.sha }}
 
       - name: Staging deploy summary
         run: |
-          echo "## Staging deploy artifacts" >> $GITHUB_STEP_SUMMARY
-          echo "Images built: stackpilot-api, stackpilot-workers, stackpilot-frontend" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Push to your container registry and deploy with:" >> $GITHUB_STEP_SUMMARY
-          echo '```bash' >> $GITHUB_STEP_SUMMARY
-          echo "docker compose -f docker-compose.yml up -d" >> $GITHUB_STEP_SUMMARY
-          echo "DEMO_SEED=true # optional demo data" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "## Staging images pushed to GHCR" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ env.IMAGE_PREFIX }}-api:staging\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ env.IMAGE_PREFIX }}-workers:staging\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ env.IMAGE_PREFIX }}-frontend:staging\`" >> $GITHUB_STEP_SUMMARY
 
   smoke-test:
     runs-on: ubuntu-latest
@@ -59,16 +81,24 @@ jobs:
 
   staging-e2e:
     runs-on: ubuntu-latest
-    needs: smoke-test
-    if: github.ref == 'refs/heads/main'
+    needs: build-images
+    if: vars.STAGING_FRONTEND_URL != ''
     steps:
       - uses: actions/checkout@v4
-      - name: Staging E2E reminder
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install Playwright
+        working-directory: frontend
         run: |
-          echo "## Staging E2E" >> $GITHUB_STEP_SUMMARY
-          echo "Run Playwright against staging after deploy:" >> $GITHUB_STEP_SUMMARY
-          echo '```bash' >> $GITHUB_STEP_SUMMARY
-          echo "PLAYWRIGHT_BASE_URL=https://app.staging.stackpilot.dev \\" >> $GITHUB_STEP_SUMMARY
-          echo "PLAYWRIGHT_API_URL=https://api.staging.stackpilot.dev/api/v1 \\" >> $GITHUB_STEP_SUMMARY
-          echo "DEMO_SEED=true npm run test:e2e" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          npm ci
+          npx playwright install chromium --with-deps
+      - name: Run Playwright against staging
+        working-directory: frontend
+        run: npm run test:e2e
+        env:
+          CI: true
+          PLAYWRIGHT_BASE_URL: ${{ vars.STAGING_FRONTEND_URL }}
+          PLAYWRIGHT_API_URL: ${{ vars.STAGING_API_URL }}

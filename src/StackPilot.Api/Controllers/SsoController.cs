@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Hangfire;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using StackPilot.Api.Extensions;
 using StackPilot.Application.Billing;
 using StackPilot.Application.Common;
 using StackPilot.Application.DTOs;
@@ -52,8 +53,9 @@ public class SsoController : ControllerBase
 
     private string AcsUrl(string? orgSlug = null)
     {
-        var baseUrl = _config["Authentication:Saml:AcsUrl"] ?? $"{Request.Scheme}://{Request.Host}/api/v1/auth/saml/acs";
-        return string.IsNullOrWhiteSpace(orgSlug) ? baseUrl : $"{baseUrl}?orgSlug={Uri.EscapeDataString(orgSlug)}";
+        var modulePath = _config["Authentication:Saml:AcsUrl"] ?? $"{Request.Scheme}://{Request.Host}/api/v1/auth/saml";
+        var acs = modulePath.EndsWith("/Acs", StringComparison.OrdinalIgnoreCase) ? modulePath : $"{modulePath.TrimEnd('/')}/Acs";
+        return string.IsNullOrWhiteSpace(orgSlug) ? acs : $"{acs}?orgSlug={Uri.EscapeDataString(orgSlug)}";
     }
 
     [HttpGet("oidc/login")]
@@ -114,7 +116,7 @@ public class SsoController : ControllerBase
             {
                 type = "saml",
                 name = _config["Authentication:Saml:DisplayName"] ?? "SAML 2.0 SSO",
-                loginUrl = "/api/v1/auth/saml/login",
+                loginUrl = "/api/v1/auth/saml/signin",
                 metadataUrl = "/api/v1/auth/saml/metadata",
                 requiresProfessionalPlan = true,
                 productionReady = hasIdpCert && !devMode,
@@ -122,6 +124,45 @@ public class SsoController : ControllerBase
             });
         }
         return Ok(ApiResponse<object>.Ok(providers));
+    }
+
+    [HttpGet("saml/signin")]
+    [AllowAnonymous]
+    public async Task<IActionResult> SamlSignIn([FromQuery] string? returnUrl = null, [FromQuery] string? orgSlug = null, CancellationToken ct = default)
+    {
+        if (!_config.GetValue<bool>("Authentication:Saml:Enabled"))
+            return BadRequest(ApiResponse<object>.Fail(new ApiError { Code = "SSO_DISABLED", Message = "SAML SSO is not enabled" }));
+
+        if (_config.GetValue<bool>("Authentication:Saml:DevMode"))
+            return await SamlLogin(returnUrl, orgSlug, ct);
+
+        if (!string.IsNullOrWhiteSpace(orgSlug))
+        {
+            var org = await _db.Organizations.AsNoTracking().FirstOrDefaultAsync(o => o.Slug == orgSlug.ToLowerInvariant(), ct);
+            if (org is null)
+                return NotFound(ApiResponse<object>.Fail(new ApiError { Code = "ORG_NOT_FOUND", Message = "Organization not found" }));
+
+            if (!PlanCatalog.LimitsFor(org.Plan).SamlSso)
+                return BadRequest(ApiResponse<object>.Fail(new ApiError
+                {
+                    Code = "PLAN_SAML_NOT_AVAILABLE",
+                    Message = "SAML SSO requires Professional plan or higher"
+                }));
+
+            var orgSaml = ReadOrgSaml(org.SettingsJson);
+            if (!orgSaml.Enabled)
+                return BadRequest(ApiResponse<object>.Fail(new ApiError
+                {
+                    Code = "ORG_SAML_DISABLED",
+                    Message = "SAML SSO is not enabled for this organization. Configure it in Settings."
+                }));
+        }
+
+        var props = new AuthenticationProperties { RedirectUri = returnUrl ?? _config["Frontend:Url"] ?? "http://localhost:3000" };
+        if (!string.IsNullOrWhiteSpace(orgSlug))
+            props.Items["orgSlug"] = orgSlug;
+
+        return Challenge(props, SamlAuthenticationExtensions.SchemeName);
     }
 
     [HttpGet("saml/login")]
@@ -197,9 +238,9 @@ public class SsoController : ControllerBase
         return Content(metadata, "application/xml");
     }
 
-    [HttpPost("saml/acs")]
+    [HttpPost("saml/dev-acs")]
     [AllowAnonymous]
-    public async Task<IActionResult> SamlAcs([FromForm] string? email, [FromForm] string? orgSlug, CancellationToken ct = default)
+    public async Task<IActionResult> SamlDevAcs([FromForm] string? email, [FromForm] string? orgSlug, CancellationToken ct = default)
     {
         if (!_config.GetValue<bool>("Authentication:Saml:Enabled"))
             return BadRequest(ApiResponse<object>.Fail(new ApiError { Code = "SSO_DISABLED", Message = "SAML SSO is not enabled" }));
@@ -233,27 +274,10 @@ public class SsoController : ControllerBase
             return Redirect($"{frontendUrl}/login#access_token={Uri.EscapeDataString(authResponse.AccessToken)}");
         }
 
-        var hasOrgCert = false;
-        if (!string.IsNullOrWhiteSpace(orgSlug))
-        {
-            var org = await _db.Organizations.AsNoTracking().FirstOrDefaultAsync(o => o.Slug == orgSlug.ToLowerInvariant(), ct);
-            hasOrgCert = org is not null && !string.IsNullOrWhiteSpace(ReadOrgSaml(org.SettingsJson).IdpCertificate);
-        }
-
-        var hasGlobalCert = !string.IsNullOrWhiteSpace(_config["Authentication:Saml:IdpCertificate"]);
-        if (hasGlobalCert || hasOrgCert)
-        {
-            return BadRequest(ApiResponse<object>.Fail(new ApiError
-            {
-                Code = "SAML_LIBRARY_REQUIRED",
-                Message = "IdP certificate is configured but Sustainsys.Saml2 is not yet integrated. Enable Authentication:Saml:DevMode for demo login, or add the Sustainsys.Saml2 middleware package for production ACS."
-            }));
-        }
-
         return BadRequest(ApiResponse<object>.Fail(new ApiError
         {
-            Code = "SAML_NOT_CONFIGURED",
-            Message = "SAML assertion consumer is scaffolded. Configure Authentication:Saml:IdpCertificate and integrate Sustainsys.Saml2 for production, or enable Authentication:Saml:DevMode for demo login."
+            Code = "SAML_DEV_MODE_REQUIRED",
+            Message = "SAML DevMode is disabled. Configure Authentication:Saml:IdpCertificate for production ACS via Sustainsys.Saml2, or enable Authentication:Saml:DevMode and POST to /api/v1/auth/saml/dev-acs."
         }));
     }
 }

@@ -598,6 +598,31 @@ public class AuthIntegrationTests : IClassFixture<StackPilotWebApplicationFactor
         Assert.False(orgBody!.Data!.IsActive);
     }
 
+    [Fact]
+    public async Task Saml_Config_Requires_Professional_Plan_On_Trial()
+    {
+        var (auth, orgId) = await RegisterAndCreateOrg($"saml_{Guid.NewGuid():N}@stackpilot.test");
+        SetAuthHeaders(auth, orgId);
+
+        var response = await _client.PutAsJsonAsync($"/api/v1/organizations/{orgId}/saml", new
+        {
+            enabled = true,
+            entityId = "https://idp.example.com/entity",
+            idpMetadataUrl = "https://idp.example.com/metadata"
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Saml_DevAcs_Returns_Disabled_When_DevMode_Off()
+    {
+        var response = await _client.PostAsync("/api/v1/auth/saml/dev-acs", new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["email"] = "saml@test.com"
+        }));
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
     private void SetAuthHeaders(string auth, Guid orgId)
     {
         _client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", auth);
