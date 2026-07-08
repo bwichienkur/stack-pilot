@@ -14,11 +14,34 @@ namespace StackPilot.Infrastructure.Services;
 public class GraphService : IGraphService
 {
     private readonly AppDbContext _db;
+    private readonly ITenantContext _tenant;
 
-    public GraphService(AppDbContext db) => _db = db;
+    public GraphService(AppDbContext db, ITenantContext tenant)
+    {
+        _db = db;
+        _tenant = tenant;
+    }
+
+    private async Task ValidateWorkspaceOrganizationAsync(Guid workspaceId, CancellationToken ct)
+    {
+        if (_tenant.OrganizationId is not Guid tenantOrgId)
+            throw new UnauthorizedAccessException("Organization context required");
+
+        var ws = await _db.Workspaces
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(w => w.Id == workspaceId, ct);
+
+        if (ws is null)
+            throw new KeyNotFoundException("Workspace not found");
+
+        if (tenantOrgId != ws.OrganizationId)
+            throw new UnauthorizedAccessException("Workspace does not belong to the current organization");
+    }
 
     public async Task<PagedResult<GraphNodeDto>> GetNodesAsync(Guid workspaceId, PagedRequest request, CancellationToken ct = default)
     {
+        await ValidateWorkspaceOrganizationAsync(workspaceId, ct);
+
         var query = _db.GraphNodes.Where(n => n.WorkspaceId == workspaceId);
         if (!string.IsNullOrWhiteSpace(request.Search))
             query = query.Where(n => n.Name.Contains(request.Search));
@@ -42,6 +65,8 @@ public class GraphService : IGraphService
 
     public async Task<List<GraphEdgeDto>> GetEdgesAsync(Guid workspaceId, CancellationToken ct = default)
     {
+        await ValidateWorkspaceOrganizationAsync(workspaceId, ct);
+
         return await _db.GraphEdges
             .Where(e => e.SourceNode!.WorkspaceId == workspaceId)
             .Select(e => new GraphEdgeDto(e.Id, e.SourceNodeId, e.TargetNodeId, e.EdgeType.ToString()))
@@ -50,6 +75,8 @@ public class GraphService : IGraphService
 
     public async Task<List<GraphNodeDto>> SearchAsync(Guid workspaceId, GraphSearchRequest request, CancellationToken ct = default)
     {
+        await ValidateWorkspaceOrganizationAsync(workspaceId, ct);
+
         var query = _db.GraphNodes.Where(n => n.WorkspaceId == workspaceId && n.Name.Contains(request.Query));
         if (!string.IsNullOrWhiteSpace(request.NodeType))
             query = query.Where(n => n.NodeType == Enum.Parse<GraphNodeType>(request.NodeType, true));
