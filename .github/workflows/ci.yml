@@ -33,7 +33,9 @@ jobs:
       - name: Build
         run: dotnet build StackPilot.sln --no-restore -c Release
       - name: Test
-        run: dotnet test tests/StackPilot.IntegrationTests/StackPilot.IntegrationTests.csproj --no-build -c Release --verbosity normal
+        run: |
+          dotnet test tests/StackPilot.UnitTests/StackPilot.UnitTests.csproj --no-build -c Release --verbosity normal
+          dotnet test tests/StackPilot.IntegrationTests/StackPilot.IntegrationTests.csproj --no-build -c Release --verbosity normal
         env:
           POSTGRES_TEST_CONNECTION: Host=localhost;Port=5432;Database=stackpilot_test;Username=stackpilot;Password=stackpilot
       - name: Build Workers

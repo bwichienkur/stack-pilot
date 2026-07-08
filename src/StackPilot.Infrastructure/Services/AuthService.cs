@@ -509,7 +509,11 @@ public class OrganizationService : IOrganizationService
             ?? throw new KeyNotFoundException("Organization not found");
 
         var saml = ReadSamlSettings(org.SettingsJson);
-        var apiBase = (_configuration["Authentication:Saml:AcsUrl"] ?? "").Replace("/api/v1/auth/saml/acs", "", StringComparison.OrdinalIgnoreCase);
+        var apiBase = (_configuration["Authentication:Saml:AcsUrl"] ?? "")
+            .Replace("/api/v1/auth/saml/Acs", "", StringComparison.OrdinalIgnoreCase)
+            .Replace("/api/v1/auth/saml/acs", "", StringComparison.OrdinalIgnoreCase)
+            .Replace("/api/v1/auth/saml", "", StringComparison.OrdinalIgnoreCase)
+            .TrimEnd('/');
         if (string.IsNullOrWhiteSpace(apiBase))
             apiBase = "http://localhost:5000";
 
@@ -518,7 +522,7 @@ public class OrganizationService : IOrganizationService
             saml.EntityId ?? $"stackpilot-{org.Slug}",
             saml.IdpMetadataUrl,
             MaskCertificate(saml.IdpCertificate),
-            $"{apiBase}/api/v1/auth/saml/login?orgSlug={org.Slug}",
+            $"{apiBase}/api/v1/auth/saml/signin?orgSlug={org.Slug}",
             $"{apiBase}/api/v1/auth/saml/metadata?orgSlug={org.Slug}");
     }
 

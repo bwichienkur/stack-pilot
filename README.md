@@ -9,10 +9,10 @@ StackPilot connects to repositories, databases, and CI/CD systems to build a kno
 | Area | Status |
 |------|--------|
 | Multi-tenant orgs, workspaces, RBAC | Production-ready foundation |
-| JWT auth + refresh tokens + OIDC/SAML SSO scaffold | Implemented |
+| JWT auth + refresh tokens + OIDC SSO + SAML 2.0 (Sustainsys.Saml2) | Implemented |
 | **13 categorized connectors** (see table below) | Test + sync flows implemented |
 | Repository & database scans → knowledge graph | End-to-end via Hangfire workers |
-| Jira + ServiceNow ticket sync | Import on connector sync |
+| Jira + ServiceNow ticket sync | Import + status push-back on linked tickets |
 | RAG-grounded AI requirements + approval gates | Implemented |
 | QA / UAT queues + release calendar (`/releases`) | Implemented |
 | GitHub Actions webhooks → build runs + PR↔ticket linking | Implemented |
@@ -31,17 +31,16 @@ StackPilot connects to repositories, databases, and CI/CD systems to build a kno
 | **CI/CD** | GitHub Actions, Azure Pipelines, Jenkins |
 | **ITSM & work** | Jira, ServiceNow |
 
-Deep code scanning runs today for **GitHub** and **GitLab**; other source connectors sync inventory and enqueue graph nodes. Database connectors run schema/collection scans.
+Deep code scanning runs today for **GitHub** and **GitLab**; **Azure DevOps** and **Bitbucket** detect frameworks via `package.json` / `.sln`. Database connectors run schema/collection scans.
 
 ## What is preview or scaffolded
 
 | Area | Status |
 |------|--------|
-| SAML 2.0 SSO | Metadata + ACS scaffold (no IdP integration yet) |
+| SAML 2.0 SSO | Production ACS via Sustainsys.Saml2; per-org IdP config in Settings (Professional+) |
 | Desktop (Tauri) / Mobile (Expo) | Scaffolds with README |
-| Bidirectional Jira/ServiceNow push-back | Import-only today |
-| Deep repo scan for Azure DevOps / Bitbucket | Inventory sync only |
-| Billing, teams UI, connector marketplace | Pricing page + Stripe Checkout; limit enforcement phase 2 shipped |
+| AI code generation | Scaffold endpoint; provider-backed codegen planned |
+| Billing, teams UI, connector marketplace | Pricing page + Stripe Checkout; limit enforcement shipped |
 | Kanban drag-and-drop | Status columns only |
 
 ## Quick Start
