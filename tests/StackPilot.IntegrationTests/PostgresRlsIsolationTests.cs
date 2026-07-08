@@ -54,12 +54,14 @@ public class PostgresRlsIsolationTests
         await setup.SaveChangesAsync();
 
         await using var tenantA = new AppDbContext(options, CreateTenant(orgA));
+        await tenantA.Database.OpenConnectionAsync();
         await tenantA.SetOrganizationAsync(orgA);
         var ticketsA = await tenantA.Tickets.AsNoTracking().Select(t => t.Title).ToListAsync();
         Assert.Contains("Ticket A", ticketsA);
         Assert.DoesNotContain("Ticket B", ticketsA);
 
         await using var tenantB = new AppDbContext(options, CreateTenant(orgB));
+        await tenantB.Database.OpenConnectionAsync();
         await tenantB.SetOrganizationAsync(orgB);
         var ticketsB = await tenantB.Tickets.AsNoTracking().Select(t => t.Title).ToListAsync();
         Assert.Contains("Ticket B", ticketsB);
