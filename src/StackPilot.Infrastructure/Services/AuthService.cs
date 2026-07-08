@@ -668,6 +668,14 @@ public class AuditService : IAuditService
 
     public async Task<PagedResult<AuditLogDto>> GetLogsAsync(Guid orgId, PagedRequest request, CancellationToken ct = default)
     {
+        // Fail-closed: do not allow callers to read audit logs for an organization different
+        // from the organization established by the tenant middleware (X-Organization-Id).
+        if (_tenant.OrganizationId is null)
+            throw new UnauthorizedAccessException("Organization context required");
+
+        if (_tenant.OrganizationId.Value != orgId)
+            throw new UnauthorizedAccessException("Cross-tenant audit log access is not allowed");
+
         _tenant.SetOrganization(orgId);
         var query = _db.AuditLogs.AsQueryable();
         var total = await query.CountAsync(ct);
