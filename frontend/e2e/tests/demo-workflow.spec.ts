@@ -81,6 +81,6 @@ test.describe("Demo workflow", () => {
 
     await page.getByRole("link", { name: "Releases" }).click();
     await expect(page.getByRole("heading", { name: "Release Calendar" })).toBeVisible({ timeout: 10000 });
-    await expect(page.getByText(/two-factor authentication|Scheduled/i)).toBeVisible();
+    await expect(page.locator("main").getByText("Add two-factor authentication")).toBeVisible();
   });
 });
