@@ -133,14 +133,23 @@ public class AiService : IAiService
             foreach (var c in citationsEl.EnumerateArray())
             {
                 if (!c.TryGetProperty("nodeId", out var nodeIdEl))
-                    continue;
+                    throw new InvalidOperationException("AI requirements output contains citations missing required nodeId");
 
-                if (nodeIdEl.ValueKind == JsonValueKind.String && Guid.TryParse(nodeIdEl.GetString(), out var nodeIdFromModel))
-                {
-                    // Only fail when a non-null nodeId is provided but wasn't retrieved.
-                    if (retrievedNodeIds.Count > 0 && !retrievedNodeIds.Contains(nodeIdFromModel))
-                        throw new InvalidOperationException("AI requirements output contains citations for nodes not present in retrieved context");
-                }
+                if (nodeIdEl.ValueKind != JsonValueKind.String)
+                    throw new InvalidOperationException("AI requirements output citation nodeId must be a string GUID");
+
+                var nodeIdStr = nodeIdEl.GetString();
+                if (string.IsNullOrWhiteSpace(nodeIdStr) || !Guid.TryParse(nodeIdStr, out var nodeIdFromModel))
+                    throw new InvalidOperationException("AI requirements output citation nodeId must be a valid GUID");
+
+                // Only fail when we actually retrieved context items to cite against.
+                if (retrievedNodeIds.Count > 0 && !retrievedNodeIds.Contains(nodeIdFromModel))
+                    throw new InvalidOperationException("AI requirements output contains citations for nodes not present in retrieved context");
+
+                if (!c.TryGetProperty("excerpt", out var excerptEl) ||
+                    excerptEl.ValueKind != JsonValueKind.String ||
+                    string.IsNullOrWhiteSpace(excerptEl.GetString()))
+                    throw new InvalidOperationException("AI requirements output citation excerpt is required");
             }
         }
 
