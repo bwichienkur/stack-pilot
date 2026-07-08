@@ -60,6 +60,31 @@ public class ConnectorOwnershipTests
         Assert.Equal(beforeCount, baselineAfter);
     }
 
+    [Fact]
+    public async Task ListConnectors_WithOtherOrgWorkspaceId_Is_NotAllowed()
+    {
+        using var factory = new StackPilotWebApplicationFactory();
+        var client = factory.CreateClient();
+
+        // Org A + userA
+        var userAEmail = $"usera_connlist_{Guid.NewGuid():N}@stackpilot.test";
+        var (authA, orgAId) = await RegisterAndCreateOrg(client, userAEmail);
+        var wsAId = await GetFirstWorkspaceId(client, authA, orgAId);
+
+        // Org B + userB
+        var userBEmail = $"userb_connlist_{Guid.NewGuid():N}@stackpilot.test";
+        var (authB, orgBId) = await RegisterAndCreateOrg(client, userBEmail);
+
+        // Call list endpoint for org A's workspace while operating under org B context.
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", authB);
+        client.DefaultRequestHeaders.Remove("X-Organization-Id");
+        client.DefaultRequestHeaders.Add("X-Organization-Id", orgBId.ToString());
+        client.DefaultRequestHeaders.Remove("X-Workspace-Id");
+
+        var response = await client.GetAsync($"/api/v1/workspaces/{wsAId}/connectors");
+        Assert.NotEqual(HttpStatusCode.OK, response.StatusCode);
+    }
+
     private static async Task<(string Auth, Guid OrgId)> RegisterAndCreateOrg(HttpClient client, string email)
     {
         var registerResponse = await client.PostAsJsonAsync("/api/v1/auth/register", new

@@ -52,6 +52,16 @@ public class ConnectorService : IConnectorService
 
     public async Task<List<ConnectorInstanceDto>> GetByWorkspaceAsync(Guid workspaceId, CancellationToken ct = default)
     {
+        var ws = await _db.Workspaces
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(w => w.Id == workspaceId, ct);
+
+        if (ws is null)
+            throw new KeyNotFoundException("Workspace not found");
+
+        if (_tenant.OrganizationId is Guid tenantOrgId && tenantOrgId != ws.OrganizationId)
+            throw new UnauthorizedAccessException("Workspace does not belong to the current organization");
+
         return await _db.ConnectorInstances
             .Include(c => c.Definition)
             .Where(c => c.WorkspaceId == workspaceId)
@@ -153,6 +163,16 @@ public class ConnectorService : IConnectorService
 
     public async Task<ConnectorHealthSummaryDto> GetHealthSummaryAsync(Guid workspaceId, CancellationToken ct = default)
     {
+        var ws = await _db.Workspaces
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(w => w.Id == workspaceId, ct);
+
+        if (ws is null)
+            throw new KeyNotFoundException("Workspace not found");
+
+        if (_tenant.OrganizationId is Guid tenantOrgId && tenantOrgId != ws.OrganizationId)
+            throw new UnauthorizedAccessException("Workspace does not belong to the current organization");
+
         var connectors = await _db.ConnectorInstances
             .Where(c => c.WorkspaceId == workspaceId)
             .GroupBy(c => c.HealthStatus)
