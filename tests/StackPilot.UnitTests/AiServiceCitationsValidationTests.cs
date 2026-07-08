@@ -14,6 +14,101 @@ namespace StackPilot.UnitTests;
 public class AiServiceCitationsValidationTests
 {
     [Fact]
+    public async Task GenerateRequirementsAsync_Throws_WhenOutput_IsNotValidJson()
+    {
+        var orgId = Guid.NewGuid();
+        var workspaceId = Guid.NewGuid();
+        var ticketId = Guid.NewGuid();
+
+        using var db = CreateDb(orgId);
+        db.Tickets.Add(new Ticket
+        {
+            Id = ticketId,
+            OrganizationId = orgId,
+            WorkspaceId = workspaceId,
+            TicketNumber = 1,
+            Title = "t",
+            Description = "d",
+            TicketType = TicketType.Enhancement,
+            Priority = TicketPriority.Medium,
+            Status = TicketStatus.AiAnalysisPending,
+            BusinessJustification = "justification",
+            RequesterId = Guid.NewGuid()
+        });
+        await db.SaveChangesAsync();
+
+        var ragNodeId = Guid.NewGuid();
+        var rag = new FakeRagIndexService([new RagSearchResult(ragNodeId, "ctx", 0.1)]);
+        var provider = new FakeAiProvider("this is not json");
+        var governance = new FakeGovernanceService();
+        var planLimits = new FakePlanLimitService();
+        var graph = new FakeGraphService();
+
+        var tenant = new TenantContext();
+        tenant.SetOrganization(orgId);
+
+        var service = new AiService(db, tenant, provider, governance, graph, rag, planLimits);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.GenerateRequirementsAsync(ticketId, CancellationToken.None));
+        Assert.Contains("not valid JSON", ex.Message);
+    }
+
+    [Fact]
+    public async Task GenerateRequirementsAsync_Throws_WhenOutput_MissingRequiredField()
+    {
+        var orgId = Guid.NewGuid();
+        var workspaceId = Guid.NewGuid();
+        var ticketId = Guid.NewGuid();
+
+        using var db = CreateDb(orgId);
+        db.Tickets.Add(new Ticket
+        {
+            Id = ticketId,
+            OrganizationId = orgId,
+            WorkspaceId = workspaceId,
+            TicketNumber = 1,
+            Title = "t",
+            Description = "d",
+            TicketType = TicketType.Enhancement,
+            Priority = TicketPriority.Medium,
+            Status = TicketStatus.AiAnalysisPending,
+            BusinessJustification = "justification",
+            RequesterId = Guid.NewGuid()
+        });
+        await db.SaveChangesAsync();
+
+        var ragNodeId = Guid.NewGuid();
+        var rag = new FakeRagIndexService([new RagSearchResult(ragNodeId, "ctx", 0.1)]);
+        var providerJson = JsonSerializer.Serialize(new
+        {
+            businessSummary = "biz",
+            functionalRequirements = "func",
+            nonFunctionalRequirements = "nfr",
+            riskScore = 4.5m,
+            confidenceScore = 0.8m,
+            citations = new[]
+            {
+                new { nodeId = ragNodeId.ToString(), excerpt = "excerpt" }
+            }
+        });
+
+        var provider = new FakeAiProvider(providerJson);
+        var governance = new FakeGovernanceService();
+        var planLimits = new FakePlanLimitService();
+        var graph = new FakeGraphService();
+
+        var tenant = new TenantContext();
+        tenant.SetOrganization(orgId);
+
+        var service = new AiService(db, tenant, provider, governance, graph, rag, planLimits);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.GenerateRequirementsAsync(ticketId, CancellationToken.None));
+        Assert.Contains("acceptanceCriteria", ex.Message);
+    }
+
+    [Fact]
     public async Task GenerateRequirementsAsync_Throws_WhenCitationNodeId_IsNotGuid()
     {
         var orgId = Guid.NewGuid();
