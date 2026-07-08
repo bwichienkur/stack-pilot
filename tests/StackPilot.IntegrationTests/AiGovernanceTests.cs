@@ -62,6 +62,54 @@ public class AiGovernanceTests
         Assert.Equal(HttpStatusCode.Unauthorized, genResp.StatusCode);
     }
 
+    [Fact]
+    public async Task GeneratePlan_RequiresHumanApproval_WhenGovernanceEnabled()
+    {
+        using var factory = new StackPilotWebApplicationFactory();
+        var client = factory.CreateClient();
+
+        var email = $"plangov_{Guid.NewGuid():N}@stackpilot.test";
+        var (orgAccessToken, orgId) = await RegisterAndCreateOrg(client, email);
+
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", orgAccessToken);
+        client.DefaultRequestHeaders.Remove("X-Organization-Id");
+        client.DefaultRequestHeaders.Add("X-Organization-Id", orgId.ToString());
+
+        var wsResp = await client.GetAsync($"/api/v1/organizations/{orgId}/workspaces");
+        Assert.Equal(HttpStatusCode.OK, wsResp.StatusCode);
+        var wsBody = await wsResp.Content.ReadFromJsonAsync<ApiResponse<List<WorkspaceDto>>>();
+        var workspaceId = wsBody!.Data![0].Id;
+
+        client.DefaultRequestHeaders.Remove("X-Workspace-Id");
+        client.DefaultRequestHeaders.Add("X-Workspace-Id", workspaceId.ToString());
+
+        // Create ticket (no approvals yet).
+        var ticketResp = await client.PostAsJsonAsync($"/api/v1/workspaces/{workspaceId}/tickets", new
+        {
+            title = "Generate plan governance test",
+            description = "We should block implementation plan generation unless a human approval record exists.",
+            ticketType = "Enhancement",
+            priority = "Medium",
+            businessJustification = "Security regression test"
+        });
+        Assert.Equal(HttpStatusCode.OK, ticketResp.StatusCode);
+        var ticketBody = await ticketResp.Content.ReadFromJsonAsync<ApiResponse<TicketDto>>();
+        var ticketId = ticketBody!.Data!.Id;
+
+        // Force ticket status to Approved WITHOUT creating an approval record.
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var ticket = await db.Tickets.IgnoreQueryFilters().FirstAsync(t => t.Id == ticketId);
+            ticket.Status = TicketStatus.Approved;
+            await db.SaveChangesAsync();
+        }
+
+        // Governance requires human approval for "generate_plan", so this should fail closed.
+        using var genResp = await client.PostAsync($"/api/v1/tickets/{ticketId}/generate-plan", null);
+        Assert.Equal(HttpStatusCode.Unauthorized, genResp.StatusCode);
+    }
+
     private static async Task<(string OrgAccessToken, Guid OrgId)> RegisterAndCreateOrg(HttpClient client, string email)
     {
         var registerResponse = await client.PostAsJsonAsync("/api/v1/auth/register", new
