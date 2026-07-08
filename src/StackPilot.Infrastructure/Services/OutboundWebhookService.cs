@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using StackPilot.Application.Common;
 using StackPilot.Application.DTOs;
 using StackPilot.Application.Interfaces;
+using StackPilot.Application.Workflow;
 using StackPilot.Domain.Entities;
 using StackPilot.Infrastructure.Persistence;
 
@@ -95,7 +96,7 @@ public class OutboundWebhookService : IOutboundWebhookService
                 using var request = new HttpRequestMessage(HttpMethod.Post, subscription.Url);
                 request.Content = new StringContent(body, Encoding.UTF8, "application/json");
                 request.Headers.Add("X-StackPilot-Event", eventType);
-                request.Headers.Add("X-StackPilot-Signature", ComputeSignature(body, subscription.Secret));
+                request.Headers.Add("X-StackPilot-Signature", StackPilotWebhookSignature.Compute(body, subscription.Secret));
 
                 var response = await client.SendAsync(request, ct);
                 if (!response.IsSuccessStatusCode)
@@ -106,14 +107,6 @@ public class OutboundWebhookService : IOutboundWebhookService
                 _logger.LogError(ex, "Failed to dispatch outbound webhook to {Url}", subscription.Url);
             }
         }
-    }
-
-    private static string ComputeSignature(string payload, string secret)
-    {
-        var keyBytes = Encoding.UTF8.GetBytes(secret);
-        var payloadBytes = Encoding.UTF8.GetBytes(payload);
-        using var hmac = new HMACSHA256(keyBytes);
-        return "sha256=" + Convert.ToHexString(hmac.ComputeHash(payloadBytes)).ToLowerInvariant();
     }
 
     private static OutboundWebhookSubscriptionDto Map(OutboundWebhookSubscription s) =>

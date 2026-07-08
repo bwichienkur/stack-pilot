@@ -83,6 +83,9 @@ public class TicketService : ITicketService
         var ws = await _db.Workspaces.FindAsync([workspaceId], ct)
             ?? throw new KeyNotFoundException("Workspace not found");
 
+        if (_tenant.OrganizationId is Guid tenantOrgId && tenantOrgId != ws.OrganizationId)
+            throw new UnauthorizedAccessException("Workspace does not belong to the current organization");
+
         _tenant.SetOrganization(ws.OrganizationId);
 
         var ticket = new Ticket

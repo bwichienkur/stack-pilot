@@ -215,7 +215,18 @@ public class BillingService : IBillingService
         }
 
         Stripe.StripeConfiguration.ApiKey = _config["Billing:Stripe:SecretKey"]!;
-        var stripeEvent = Stripe.EventUtility.ConstructEvent(json, signatureHeader, _config["Billing:Stripe:WebhookSecret"]!);
+
+        Stripe.Event stripeEvent;
+        try
+        {
+            // Signature is verified at the API controller; parse the event payload here.
+            stripeEvent = Stripe.EventUtility.ParseEvent(json, throwOnApiVersionMismatch: false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Ignoring unparseable Stripe webhook payload");
+            return;
+        }
 
         switch (stripeEvent.Type)
         {

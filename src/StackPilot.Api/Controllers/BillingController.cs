@@ -1,10 +1,12 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Hosting;
 using StackPilot.Api.Authorization;
 using StackPilot.Application.Common;
 using StackPilot.Application.DTOs;
 using StackPilot.Application.Interfaces;
+using StackPilot.Application.Workflow;
 
 namespace StackPilot.Api.Controllers;
 
@@ -13,8 +15,21 @@ namespace StackPilot.Api.Controllers;
 public class BillingController : ControllerBase
 {
     private readonly IBillingService _billing;
+    private readonly IConfiguration _config;
+    private readonly ILogger<BillingController> _logger;
+    private readonly IHostEnvironment _env;
 
-    public BillingController(IBillingService billing) => _billing = billing;
+    public BillingController(
+        IBillingService billing,
+        IConfiguration config,
+        ILogger<BillingController> logger,
+        IHostEnvironment env)
+    {
+        _billing = billing;
+        _config = config;
+        _logger = logger;
+        _env = env;
+    }
 
     private Guid UserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
@@ -55,6 +70,22 @@ public class BillingController : ControllerBase
     {
         var json = await new StreamReader(HttpContext.Request.Body).ReadToEndAsync(ct);
         var signature = Request.Headers["Stripe-Signature"].ToString();
+
+        var webhookSecret = _config["Billing:Stripe:WebhookSecret"];
+        if (!string.IsNullOrWhiteSpace(webhookSecret))
+        {
+            if (string.IsNullOrWhiteSpace(signature) ||
+                !StripeWebhookSignature.IsValid(json, signature, webhookSecret))
+                return Unauthorized();
+
+            await _billing.HandleStripeWebhookAsync(json, signature, ct);
+            return Ok();
+        }
+
+        if (!_env.IsDevelopment() && !_env.IsEnvironment("Testing"))
+            return StatusCode(500);
+
+        _logger.LogWarning("Stripe webhook secret not configured; accepting request without signature verification in dev/testing");
         await _billing.HandleStripeWebhookAsync(json, signature, ct);
         return Ok();
     }

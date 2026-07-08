@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using StackPilot.Application.Common;
 using StackPilot.Application.Interfaces;
+using StackPilot.Application.Workflow;
 using StackPilot.Infrastructure.Persistence;
 
 namespace StackPilot.IntegrationTests;
@@ -105,6 +106,92 @@ public class WebhookSignatureTests
         finally
         {
             Environment.SetEnvironmentVariable("Webhooks__GitHub__Secret", null);
+        }
+    }
+
+    [Fact]
+    public async Task StripeWebhook_SecretConfigured_SignatureMissing_Returns_Unauthorized()
+    {
+        const string webhookSecret = "integration_test_webhook_signing_secret";
+        Environment.SetEnvironmentVariable("Billing__Stripe__WebhookSecret", webhookSecret);
+        Environment.SetEnvironmentVariable("Billing__Stripe__SecretKey", "sk_test_placeholder");
+
+        try
+        {
+            using var factory = new StackPilotWebApplicationFactory();
+            var client = factory.CreateClient();
+
+            var payload = """{"type":"ping"}""";
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/billing/webhooks/stripe")
+            {
+                Content = new StringContent(payload, Encoding.UTF8, "application/json")
+            };
+
+            var response = await client.SendAsync(request);
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("Billing__Stripe__WebhookSecret", null);
+            Environment.SetEnvironmentVariable("Billing__Stripe__SecretKey", null);
+        }
+    }
+
+    [Fact]
+    public async Task StripeWebhook_SecretConfigured_SignatureValid_Returns_Ok()
+    {
+        const string webhookSecret = "integration_test_webhook_signing_secret";
+        Environment.SetEnvironmentVariable("Billing__Stripe__WebhookSecret", webhookSecret);
+        Environment.SetEnvironmentVariable("Billing__Stripe__SecretKey", "sk_test_placeholder");
+
+        try
+        {
+            using var factory = new StackPilotWebApplicationFactory();
+            var client = factory.CreateClient();
+
+            var payload = """{"id":"evt_test","object":"event","api_version":"2020-08-27","created":1609459200,"type":"product.created","data":{"object":{"id":"prod_test","object":"product","active":true}}}""";
+            var signature = StripeWebhookSignature.Sign(payload, webhookSecret);
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/billing/webhooks/stripe")
+            {
+                Content = new StringContent(payload, Encoding.UTF8, "application/json")
+            };
+            request.Headers.Add("Stripe-Signature", signature);
+
+            var response = await client.SendAsync(request);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("Billing__Stripe__WebhookSecret", null);
+            Environment.SetEnvironmentVariable("Billing__Stripe__SecretKey", null);
+        }
+    }
+
+    [Fact]
+    public async Task StripeWebhook_SecretMissing_InProduction_FailsClosed()
+    {
+        Environment.SetEnvironmentVariable("Billing__Stripe__WebhookSecret", null);
+        Environment.SetEnvironmentVariable("Billing__Stripe__SecretKey", null);
+
+        try
+        {
+            using var factory = new ProductionStackPilotWebApplicationFactory();
+            var client = factory.CreateClient();
+
+            var payload = """{"type":"ping"}""";
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/billing/webhooks/stripe")
+            {
+                Content = new StringContent(payload, Encoding.UTF8, "application/json")
+            };
+
+            var response = await client.SendAsync(request);
+            Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("Billing__Stripe__WebhookSecret", null);
+            Environment.SetEnvironmentVariable("Billing__Stripe__SecretKey", null);
         }
     }
 }

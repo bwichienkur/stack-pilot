@@ -37,6 +37,7 @@ Examples: `tickets:create`, `tickets:approve:security`, `connectors:manage`
 - EF Core global query filters for tenant isolation
 - Workspace-level scoping in service layer
 - API middleware validates `X-Organization-Id` matches JWT claims
+- `X-Workspace-Id` must belong to the selected organization (403 otherwise)
 
 ## 3. Data Protection
 
