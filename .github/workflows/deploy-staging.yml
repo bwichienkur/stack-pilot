@@ -13,6 +13,10 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/stackpilot
+  # Defaults let the workflow run even when repo variables aren't configured yet.
+  # Override in GitHub Settings → Actions → Variables when needed.
+  STAGING_FRONTEND_URL: ${{ vars.STAGING_FRONTEND_URL || 'https://staging.stackpilot.dev' }}
+  STAGING_API_URL: ${{ vars.STAGING_API_URL || 'https://api.staging.stackpilot.dev/api/v1' }}
 
 jobs:
   build-images:
@@ -45,7 +49,7 @@ jobs:
       - name: Build and push Frontend image
         run: |
           docker build -f Dockerfile.frontend \
-            --build-arg NEXT_PUBLIC_API_URL=${{ vars.STAGING_API_URL || 'https://api.staging.stackpilot.dev/api/v1' }} \
+            --build-arg NEXT_PUBLIC_API_URL=${{ env.STAGING_API_URL }} \
             -t ${{ env.IMAGE_PREFIX }}-frontend:staging \
             -t ${{ env.IMAGE_PREFIX }}-frontend:${{ github.sha }} .
           docker push ${{ env.IMAGE_PREFIX }}-frontend:staging
@@ -82,7 +86,7 @@ jobs:
   staging-e2e:
     runs-on: ubuntu-latest
     needs: build-images
-    if: vars.STAGING_FRONTEND_URL != ''
+    if: env.STAGING_FRONTEND_URL != ''
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -100,5 +104,5 @@ jobs:
         run: npm run test:e2e
         env:
           CI: true
-          PLAYWRIGHT_BASE_URL: ${{ vars.STAGING_FRONTEND_URL }}
-          PLAYWRIGHT_API_URL: ${{ vars.STAGING_API_URL }}
+          PLAYWRIGHT_BASE_URL: ${{ env.STAGING_FRONTEND_URL }}
+          PLAYWRIGHT_API_URL: ${{ env.STAGING_API_URL }}
