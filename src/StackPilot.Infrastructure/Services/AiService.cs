@@ -197,6 +197,8 @@ public class AiService : IAiService
 
         await _governance.RecordActionAsync("generate_plan", ticket.Title, result.Content, result.Model, result.TokensUsed, true, ct);
 
+        ValidateImplementationPlanOutput(result.Content);
+
         ticket.ImplementationPlanJson = result.Content;
         ticket.Status = TicketStatus.ImplementationInProgress;
         await _db.SaveChangesAsync(ct);
@@ -217,6 +219,8 @@ public class AiService : IAiService
         }, ct);
 
         await _governance.RecordActionAsync("generate_documentation", page.Title, result.Content, result.Model, result.TokensUsed, true, ct);
+
+        ValidateDocumentationOutput(result.Content);
 
         var latestVersion = await _db.DocumentationVersions
             .Where(v => v.PageId == pageId)
@@ -271,6 +275,42 @@ public class AiService : IAiService
             "generate_code", ticket.Title, suggestedCode, "scaffold", 500, true, ct);
 
         return new AiCodeSuggestionDto(actionId, suggestedCode, "csharp", $"Scaffold for {ticket.Title}");
+    }
+
+    private static void ValidateImplementationPlanOutput(string content)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+            throw new InvalidOperationException("AI implementation plan output was empty");
+
+        var required = new[]
+        {
+            "## Implementation Plan",
+            "### Affected Components",
+            "### Steps",
+            "### Rollback Plan"
+        };
+
+        foreach (var section in required)
+        {
+            if (content.IndexOf(section, StringComparison.OrdinalIgnoreCase) < 0)
+                throw new InvalidOperationException($"AI implementation plan output missing required section: {section}");
+        }
+    }
+
+    private static void ValidateDocumentationOutput(string content)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+            throw new InvalidOperationException("AI documentation output was empty");
+
+        // Fail-closed if the model doesn't produce markdown-like structure.
+        // We only require at least one heading line (e.g. "#", "##", "###") to keep validation resilient.
+        var hasHeading = content
+            .Split('\n')
+            .Select(l => l.TrimStart())
+            .Any(l => l.StartsWith("#", StringComparison.Ordinal));
+
+        if (!hasHeading)
+            throw new InvalidOperationException("AI documentation output must contain at least one markdown heading");
     }
 }
 

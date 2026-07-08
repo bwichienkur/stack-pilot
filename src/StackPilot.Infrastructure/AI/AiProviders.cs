@@ -153,6 +153,8 @@ public class MockAiProvider : IAiProvider
             ? """{"businessSummary":"Automated analysis of the submitted ticket","functionalRequirements":"Implement the described feature with proper validation and error handling","nonFunctionalRequirements":"Response time < 200ms, 99.9% availability, secure by default","acceptanceCriteria":"Feature works as described\nAll tests pass\nNo security vulnerabilities","riskScore":4.5,"confidenceScore":0.82}"""
             : request.SystemPrompt.Contains("architect", StringComparison.OrdinalIgnoreCase)
             ? "## Implementation Plan\n\n### Affected Components\n- Service layer\n- API endpoints\n- Database schema\n\n### Steps\n1. Create feature branch\n2. Implement changes\n3. Add unit tests\n4. Update documentation\n\n### Rollback Plan\nRevert commit and redeploy previous version."
+            : request.SystemPrompt.Contains("technical documentation", StringComparison.OrdinalIgnoreCase)
+            ? "# Documentation\n\n## Overview\nThis section describes the generated documentation content.\n\n## Security Considerations\nIncludes validation and fail-closed guidance."
             : $"Based on the available context, here is my analysis regarding: {request.UserPrompt[..Math.Min(100, request.UserPrompt.Length)]}...";
 
         return Task.FromResult(new AiCompletionResult { Content = content, Model = "mock-gpt-4", TokensUsed = 500 });
